@@ -15,14 +15,15 @@
 
   const fields = root => [...(root || document).querySelectorAll(
     "input:not([type='hidden']), select, textarea, [role='combobox'], " +
-    "[aria-haspopup='listbox'], mat-select, [contenteditable='true']"
+    "[aria-haspopup='listbox'], mat-select, .mat-select, .mat-mdc-select, " +
+    "[contenteditable='true']"
   )].filter(visible);
 
   const textFor = element => {
     const values = [];
     if (element.labels) [...element.labels].forEach(label => values.push(label.innerText));
     ["aria-label", "aria-labelledby", "placeholder", "name", "id",
-      "formcontrolname", "ng-reflect-name", "data-name"].forEach(attribute => {
+      "formcontrolname", "ng-reflect-name", "data-name", "data-placeholder"].forEach(attribute => {
       const value = element.getAttribute(attribute);
       if (value) values.push(value);
     });
@@ -35,14 +36,14 @@
 
     // Material form fields normally keep the label and control in this parent.
     const parent = element.closest("mat-form-field, .mat-mdc-form-field, " +
-      ".mat-form-field, div, td, li, tr, section, article, fieldset, label");
+      ".mat-form-field, td, tr, section, article, fieldset, label, div");
     if (parent?.innerText) values.push(parent.innerText.slice(0, 300));
     return normalize(values.join(" "));
   };
 
   const isSelect = element => element instanceof HTMLSelectElement ||
-    element.tagName?.toLowerCase() === "select" ||
-    element.matches?.("[role='combobox'], [aria-haspopup='listbox'], mat-select");
+    ["select", "mat-select"].includes(element.tagName?.toLowerCase()) ||
+    element.matches?.("[role='combobox'], [aria-haspopup='listbox'], .mat-select, .mat-mdc-select");
 
   const emit = (element, type) => element.dispatchEvent(new Event(type, {
     bubbles: true,
@@ -61,20 +62,33 @@
     if (setter) setter.call(element, stringValue);
     else element.value = stringValue;
 
-    // Angular/React controlled inputs need the native events, not only a
-    // property assignment, otherwise the visible text is not form state.
     emit(element, "input");
     emit(element, "change");
     element.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
     return true;
   };
 
-  const optionMatches = (element, value) => {
+  const optionAliases = value => {
     const wanted = normalize(value);
-    const label = normalize(element.textContent);
-    const optionValue = normalize(element.getAttribute("value"));
-    const ariaLabel = normalize(element.getAttribute("aria-label"));
-    return label === wanted || optionValue === wanted || ariaLabel === wanted;
+    const aliases = new Set([wanted]);
+    if (["male", "m"].includes(wanted)) aliases.add("male");
+    if (["female", "f"].includes(wanted)) aliases.add("female");
+    if (["aadhaar", "aadhar", "aadhaarcard", "aadharcard"].includes(wanted)) {
+      aliases.add("aadhaar");
+      aliases.add("aadhar");
+      aliases.add("aadhaarcard");
+      aliases.add("aadharcard");
+    }
+    return aliases;
+  };
+
+  const optionMatches = (element, value) => {
+    const labels = [element.textContent, element.getAttribute("value"),
+      element.getAttribute("aria-label"), element.getAttribute("data-value")]
+      .map(normalize).filter(Boolean);
+    const wanted = optionAliases(value);
+    return labels.some(label => [...wanted].some(candidate =>
+      label === candidate || label.startsWith(candidate) || candidate.startsWith(label)));
   };
 
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -82,7 +96,9 @@
   const setNativeSelect = (element, value) => {
     const option = [...element.options].find(candidate => optionMatches(candidate, value));
     if (!option) return false;
-    element.value = option.value;
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+    if (setter) setter.call(element, option.value);
+    else element.value = option.value;
     emit(element, "input");
     emit(element, "change");
     emit(element, "blur");
@@ -91,8 +107,14 @@
 
   const openOptions = () => [...document.querySelectorAll(
     "[role='option'], mat-option, .mat-option, .mat-mdc-option, " +
-    ".mdc-list-item, [role='menuitem'], .dropdown-item, li"
+    ".mdc-list-item, [role='menuitem'], .dropdown-item"
   )].filter(visible);
+
+  const selectedText = element => normalize(
+    element.getAttribute("aria-label") ||
+    element.querySelector?.(".mat-select-value-text, .mat-mdc-select-value-text")?.textContent ||
+    element.textContent
+  );
 
   const setCustomSelect = async (element, value) => {
     if (!element || value === undefined || value === null || value === "") return false;
@@ -100,8 +122,11 @@
       return setNativeSelect(element, value);
     }
 
-    element.focus?.();
-    element.click();
+    const trigger = element.querySelector?.(
+      ".mat-select-trigger, .mat-mdc-select-trigger, [role='combobox']"
+    ) || element;
+    trigger.focus?.();
+    trigger.click();
     let option;
     for (let attempt = 0; attempt < 40; attempt++) {
       option = openOptions().find(candidate => optionMatches(candidate, value));
@@ -109,19 +134,17 @@
       await wait(50);
     }
     if (!option) {
-      element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       return false;
     }
 
-    // A real click is important for Angular Material: setting the combobox
-    // value directly does not update its FormControl.
     option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, composed: true }));
     option.click();
     option.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, composed: true }));
-    await wait(100);
-    return normalize(element.textContent) === normalize(value) ||
-      normalize(element.getAttribute("aria-label")) === normalize(value) ||
-      !!element.getAttribute("aria-activedescendant");
+    emit(trigger, "input");
+    emit(trigger, "change");
+    await wait(150);
+    return [...optionAliases(value)].some(candidate => selectedText(element).includes(candidate));
   };
 
   const scoreFor = (element, keywords) => {
@@ -145,6 +168,12 @@
     return selected;
   };
 
+  const firstUnused = (available, used, predicate) => {
+    const element = available.find(candidate => !used.has(candidate) && predicate(candidate));
+    if (element) used.add(element);
+    return element;
+  };
+
   const fillPilgrim = async (root, pilgrim) => {
     const available = fields(root || document);
     const used = new Set();
@@ -155,10 +184,13 @@
     const name = bestField(available,
       ["pilgrim name", "devotee name", "full name", "traveller name", "name"], used, textField);
     const age = bestField(available, ["age", "years"], used, textField);
-    const gender = bestField(available, ["gender", "sex"], used, selectField);
+    // Some versions of the TTD page expose only a visual label, not a label
+    // attribute. Keep the positional fallback for the two select controls.
+    const gender = bestField(available, ["gender", "sex"], used, selectField) ||
+      firstUnused(available, used, selectField);
     const proof = bestField(available,
       ["photo id proof", "photoidproof", "id proof", "proof type", "document type", "identity proof"],
-      used, selectField);
+      used, selectField) || firstUnused(available, used, selectField);
     const number = bestField(available,
       ["photo id number", "photoidnumber", "id number", "proof id number", "document number", "identity number"],
       used, textField);
