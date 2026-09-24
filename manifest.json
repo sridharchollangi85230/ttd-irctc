@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "TTD Smart Autofill",
+  "version": "2.0.0",
+  "description": "Local-only TTD pilgrim profile and multi-pilgrim autofill helper.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["https://ttdevasthanams.ap.gov.in/*"],
+  "action": {
+    "default_title": "TTD Smart Autofill",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://ttdevasthanams.ap.gov.in/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
