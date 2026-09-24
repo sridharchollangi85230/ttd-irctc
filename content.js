@@ -1,120 +1,77 @@
 (() => {
-  const normalize = value => String(value ?? "")
-    .toLowerCase()
-    .replace(/\u00a0/g, " ")
-    .replace(/[^a-z0-9]/g, "");
+  const normalize = value => String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
   const visible = element => {
     if (!element || element.disabled) return false;
-    const style = getComputedStyle(element);
     const rect = element.getBoundingClientRect();
-    return style.display !== "none" && style.visibility !== "hidden" &&
-      !element.closest("[hidden], [aria-hidden='true']") &&
-      (rect.width > 0 || rect.height > 0);
+    const style = getComputedStyle(element);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
   };
 
   const fields = root => [...(root || document).querySelectorAll(
-    "input:not([type='hidden']), select, textarea, [role='combobox'], " +
-    "[aria-haspopup='listbox'], mat-select, .mat-select, .mat-mdc-select, " +
-    "[contenteditable='true']"
+    "input, select, textarea, [role='combobox'], [aria-haspopup='listbox'], mat-select"
   )].filter(visible);
 
   const textFor = element => {
     const values = [];
     if (element.labels) [...element.labels].forEach(label => values.push(label.innerText));
-    ["aria-label", "aria-labelledby", "placeholder", "name", "id",
-      "formcontrolname", "ng-reflect-name", "data-name", "data-placeholder"].forEach(attribute => {
+    ["aria-label", "aria-labelledby", "placeholder", "name", "id", "formcontrolname"].forEach(attribute => {
       const value = element.getAttribute(attribute);
       if (value) values.push(value);
     });
-
-    const labelledBy = element.getAttribute("aria-labelledby");
-    if (labelledBy) labelledBy.split(/\s+/).forEach(id => {
-      const label = document.getElementById(id);
-      if (label?.innerText) values.push(label.innerText);
-    });
-
-    // Material form fields normally keep the label and control in this parent.
-    const parent = element.closest("mat-form-field, .mat-mdc-form-field, " +
-      ".mat-form-field, td, tr, section, article, fieldset, label, div");
-    if (parent?.innerText) values.push(parent.innerText.slice(0, 300));
+    const parent = element.closest("div, td, li, tr, section");
+    if (parent?.innerText) values.push(parent.innerText.slice(0, 240));
     return normalize(values.join(" "));
   };
 
-  const isSelect = element => element instanceof HTMLSelectElement ||
-    ["select", "mat-select"].includes(element.tagName?.toLowerCase()) ||
-    element.matches?.("[role='combobox'], [aria-haspopup='listbox'], .mat-select, .mat-mdc-select");
-
-  const emit = (element, type) => element.dispatchEvent(new Event(type, {
-    bubbles: true,
-    composed: true
-  }));
-
-  const setInputValue = (element, value) => {
-    if (!element || value === undefined || value === null || value === "") return false;
-    const stringValue = String(value).trim();
-    if (!stringValue || isSelect(element)) return false;
-
+  const nativeSetter = (element, value) => {
     const prototype = element instanceof HTMLTextAreaElement
       ? HTMLTextAreaElement.prototype
-      : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
-    if (setter) setter.call(element, stringValue);
-    else element.value = stringValue;
-
-    emit(element, "input");
-    emit(element, "change");
-    element.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
-    return true;
+      : element instanceof HTMLInputElement
+        ? HTMLInputElement.prototype
+        : null;
+    const setter = prototype && Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+    if (setter) setter.call(element, String(value));
+    else element.value = String(value);
   };
 
-  const optionAliases = value => {
-    const wanted = normalize(value);
-    const aliases = new Set([wanted]);
-    if (["male", "m"].includes(wanted)) aliases.add("male");
-    if (["female", "f"].includes(wanted)) aliases.add("female");
-    if (["aadhaar", "aadhar", "aadhaarcard", "aadharcard"].includes(wanted)) {
-      aliases.add("aadhaar");
-      aliases.add("aadhar");
-      aliases.add("aadhaarcard");
-      aliases.add("aadharcard");
-    }
-    return aliases;
+  const setValue = (element, value) => {
+    if (!element || value === undefined || value === null || value === "") return false;
+    nativeSetter(element, value);
+    ["input", "change", "blur"].forEach(type => element.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
+    return true;
   };
 
   const optionMatches = (element, value) => {
-    const labels = [element.textContent, element.getAttribute("value"),
-      element.getAttribute("aria-label"), element.getAttribute("data-value")]
-      .map(normalize).filter(Boolean);
-    const wanted = optionAliases(value);
-    return labels.some(label => [...wanted].some(candidate =>
-      label === candidate || label.startsWith(candidate) || candidate.startsWith(label)));
+    const wanted = normalize(value);
+    const text = normalize(element.textContent);
+    const optionValue = normalize(element.getAttribute("value"));
+    return text === wanted || optionValue === wanted;
   };
 
-  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
   const setNativeSelect = (element, value) => {
-    const option = [...element.options].find(candidate => optionMatches(candidate, value));
+    const option = [...element.options].find(item => optionMatches(item, value));
     if (!option) return false;
-    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
-    if (setter) setter.call(element, option.value);
-    else element.value = option.value;
-    emit(element, "input");
-    emit(element, "change");
-    emit(element, "blur");
+    element.value = option.value;
+    ["input", "change", "blur"].forEach(type => element.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
     return true;
   };
 
-  const openOptions = () => [...document.querySelectorAll(
-    "[role='option'], mat-option, .mat-option, .mat-mdc-option, " +
-    ".mdc-list-item, [role='menuitem'], .dropdown-item"
-  )].filter(visible);
-
-  const selectedText = element => normalize(
-    element.getAttribute("aria-label") ||
-    element.querySelector?.(".mat-select-value-text, .mat-mdc-select-value-text")?.textContent ||
-    element.textContent
-  );
+  const overlayCandidates = () => {
+    const roots = [...document.querySelectorAll(
+      "[role='listbox'], [role='menu'], mat-option, .mat-option, .mat-mdc-option, " +
+      ".cdk-overlay-pane, .cdk-overlay-container, .dropdown-menu, [class*='dropdown']"
+    )].filter(visible);
+    const candidates = roots.flatMap(root => [
+      ...root.querySelectorAll("[role='option'], [role='menuitem'], mat-option, li, button, option, " +
+        ".mat-option, .mat-mdc-option, .mdc-list-item, div, span")
+    ]);
+    return [...new Set(candidates)].filter(visible).filter(element => {
+      return ![...element.children].some(child => normalize(child.textContent) === normalize(element.textContent));
+    });
+  };
 
   const setCustomSelect = async (element, value) => {
     if (!element || value === undefined || value === null || value === "") return false;
@@ -122,119 +79,112 @@
       return setNativeSelect(element, value);
     }
 
-    const trigger = element.querySelector?.(
-      ".mat-select-trigger, .mat-mdc-select-trigger, [role='combobox']"
-    ) || element;
-    trigger.focus?.();
-    trigger.click();
-    let option;
-    for (let attempt = 0; attempt < 40; attempt++) {
-      option = openOptions().find(candidate => optionMatches(candidate, value));
-      if (option) break;
-      await wait(50);
+    element.focus?.();
+    element.click();
+    let option = null;
+    for (let attempt = 0; attempt < 30 && !option; attempt++) {
+      option = overlayCandidates().find(item => optionMatches(item, value));
+      if (!option) await wait(50);
     }
     if (!option) {
-      trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       return false;
     }
-
     option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, composed: true }));
     option.click();
     option.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, composed: true }));
-    emit(trigger, "input");
-    emit(trigger, "change");
     await wait(150);
-    return [...optionAliases(value)].some(candidate => selectedText(element).includes(candidate));
+    return true;
   };
 
-  const scoreFor = (element, keywords) => {
-    const label = textFor(element);
-    return keywords.reduce((score, keyword) =>
-      score + (label.includes(normalize(keyword)) ? 1 : 0), 0);
-  };
-
-  const bestField = (available, keywords, used, predicate = () => true) => {
+  const best = (available, keywords, used) => {
     let selected = null;
-    let bestScore = 0;
+    let score = 0;
     for (const element of available) {
-      if (used.has(element) || !predicate(element)) continue;
-      const score = scoreFor(element, keywords);
-      if (score > bestScore) {
+      if (used.has(element)) continue;
+      const label = textFor(element);
+      const current = keywords.reduce((total, keyword) => total + (label.includes(normalize(keyword)) ? 1 : 0), 0);
+      if (current > score) {
         selected = element;
-        bestScore = score;
+        score = current;
       }
     }
     if (selected) used.add(selected);
     return selected;
   };
 
-  const firstUnused = (available, used, predicate) => {
-    const element = available.find(candidate => !used.has(candidate) && predicate(candidate));
-    if (element) used.add(element);
-    return element;
+  const fillGeneralDetails = async (root, profile) => {
+    if (!profile?.generalDetails) return 0;
+    const available = fields(root);
+    const used = new Set();
+    let count = 0;
+
+    const email = best(available, ["email id", "email", "email address", "e mail"], used);
+    const city = best(available, ["city", "town", "place"], used);
+    const state = best(available, ["state", "province"], used);
+    const country = best(available, ["country", "nation"], used);
+    const pincode = best(available, ["pincode", "pin code", "postal code", "zip code"], used);
+
+    if (setValue(email, profile.generalDetails.email)) count++;
+    if (setValue(city, profile.generalDetails.city)) count++;
+    if (await setCustomSelect(state, profile.generalDetails.state)) count++;
+    if (await setCustomSelect(country, profile.generalDetails.country)) count++;
+    if (setValue(pincode, profile.generalDetails.pincode)) count++;
+    return count;
   };
 
   const fillPilgrim = async (root, pilgrim) => {
-    const available = fields(root || document);
+    const available = fields(root);
     const used = new Set();
     let count = 0;
-    const textField = element => !isSelect(element);
-    const selectField = element => isSelect(element);
-
-    const name = bestField(available,
-      ["pilgrim name", "devotee name", "full name", "traveller name", "name"], used, textField);
-    const age = bestField(available, ["age", "years"], used, textField);
-    // Some versions of the TTD page expose only a visual label, not a label
-    // attribute. Keep the positional fallback for the two select controls.
-    const gender = bestField(available, ["gender", "sex"], used, selectField) ||
-      firstUnused(available, used, selectField);
-    const proof = bestField(available,
-      ["photo id proof", "photoidproof", "id proof", "proof type", "document type", "identity proof"],
-      used, selectField) || firstUnused(available, used, selectField);
-    const number = bestField(available,
-      ["photo id number", "photoidnumber", "id number", "proof id number", "document number", "identity number"],
-      used, textField);
-
-    if (setInputValue(name, pilgrim.name)) count++;
-    if (setInputValue(age, pilgrim.age)) count++;
+    const name = best(available, ["pilgrim name", "devotee name", "full name", "name"], used);
+    const age = best(available, ["age", "years"], used);
+    const gender = best(available, ["gender", "sex"], used);
+    const proof = best(available, ["photo id proof", "id proof", "proof type", "document type", "identity proof"], used);
+    const number = best(available, ["photo id number", "id number", "proof id number", "document number", "identity number"], used);
+    if (setValue(name, pilgrim.name)) count++;
+    if (setValue(age, pilgrim.age)) count++;
     if (await setCustomSelect(gender, pilgrim.gender)) count++;
     if (await setCustomSelect(proof, pilgrim.idType)) count++;
-    if (setInputValue(number, pilgrim.idNumber)) count++;
+    if (setValue(number, pilgrim.idNumber)) count++;
     return count;
   };
 
   const findGroups = expected => {
-    if (!expected) return [];
     const all = fields(document);
-    const candidates = [...document.querySelectorAll(
-      "fieldset, section, article, li, tr, .row, [class*='pilgrim'], " +
-      "[class*='passenger'], [class*='devotee']"
-    )].filter(visible).filter(group => fields(group).length >= 3);
-    const groups = [];
+    const candidates = [...document.querySelectorAll("fieldset, section, article, li, tr, .row, [class*='pilgrim'], [class*='passenger'], [class*='devotee']")]
+      .filter(visible).filter(group => fields(group).length >= 3);
+    const unique = [];
     for (const group of candidates) {
-      if (!groups.some(existing => existing.contains(group))) groups.push(group);
-      if (groups.length >= expected) return groups.slice(0, expected);
+      if (!unique.some(existing => existing.contains(group))) unique.push(group);
+      if (unique.length >= expected) break;
     }
-    const size = Math.max(1, Math.ceil(all.length / expected));
-    return Array.from({ length: expected }, (_, index) => ({
-      querySelectorAll: () => all.slice(index * size, (index + 1) * size),
-      contains: () => false
-    }));
+    if (unique.length >= expected) return unique;
+    const chunkSize = Math.max(1, Math.floor(all.length / expected));
+    return Array.from({ length: expected }, (_, index) => {
+      const selected = all.slice(index * chunkSize, index === expected - 1 ? all.length : (index + 1) * chunkSize);
+      return { querySelectorAll: () => selected };
+    });
   };
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action !== "fill") return;
     (async () => {
       try {
-        const pilgrims = Array.isArray(message.profile?.pilgrims) ? message.profile.pilgrims : [];
-        const groups = findGroups(pilgrims.length);
+        const profile = message.profile || { generalDetails: {}, pilgrims: [] };
+        const pilgrims = Array.isArray(profile.pilgrims) ? profile.pilgrims : [];
+        const groups = findGroups(pilgrims.length || 1);
         let filled = 0;
+
+        if (profile.generalDetails) {
+          filled += await fillGeneralDetails(document, profile);
+        }
+
         for (const [index, pilgrim] of pilgrims.entries()) {
           filled += await fillPilgrim(groups[index] || document, pilgrim);
         }
-        sendResponse({ message: filled
-          ? `Filled ${filled} field(s) for ${pilgrims.length} pilgrim(s). Review all details before continuing.`
-          : "No matching fields found. Check the page and form labels." });
+
+        sendResponse({ message: filled ? `Filled ${filled} field(s) for ${pilgrims.length} pilgrim(s). Review all details before continuing.` : "No matching fields found. Check the page and form labels." });
       } catch (error) {
         console.error("TTD Smart Autofill:", error);
         sendResponse({ message: "Could not fill this page. Please review manually." });

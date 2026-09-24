@@ -8,37 +8,42 @@
 <body>
   <h2>TTD Smart Autofill</h2>
   <div class="sub">Profiles and multiple pilgrims</div>
+
   <label for="profileSelect">Profile</label>
   <select id="profileSelect"></select>
+
   <button id="fillBtn" class="primary">Fill Form Only</button>
   <button id="saveBtn">Save Profile</button>
   <button id="newBtn">New Profile</button>
   <div id="status" class="status">Ready</div>
-  <details open>
-    <summary>General Details</summary>
-    <div class="general-details">
-      <label for="email">Email ID <span class="required">*</span></label>
-      <input id="email" type="email" autocomplete="email" placeholder="Enter email ID">
-      <label for="gothram">Gothram</label>
-      <input id="gothram" placeholder="Gothram">
-      <label for="city">City <span class="required">*</span></label>
-      <input id="city" autocomplete="address-level2" placeholder="Enter City">
-      <label for="state">State <span class="required">*</span></label>
-      <input id="state" autocomplete="address-level1" placeholder="State">
-      <label for="country">Country <span class="required">*</span></label>
-      <input id="country" autocomplete="country-name" placeholder="Country">
-      <label for="pincode">Pincode <span class="required">*</span></label>
-      <input id="pincode" inputmode="numeric" autocomplete="postal-code" placeholder="Enter pincode">
-    </div>
-  </details>
+
   <details open>
     <summary>Profile details</summary>
+
     <label for="profileName">Profile name</label>
     <input id="profileName" placeholder="Family 1">
+
+    <div class="section-title">General Details</div>
+    <label for="generalEmail">Enter email ID <span class="required">*</span></label>
+    <input id="generalEmail" placeholder="Enter email ID">
+
+    <label for="generalCity">Enter City <span class="required">*</span></label>
+    <input id="generalCity" placeholder="Enter City">
+
+    <label for="generalState">State <span class="required">*</span></label>
+    <input id="generalState" placeholder="State">
+
+    <label for="generalCountry">Country <span class="required">*</span></label>
+    <input id="generalCountry" placeholder="Country">
+
+    <label for="generalPincode">Enter pincode <span class="required">*</span></label>
+    <input id="generalPincode" placeholder="Enter pincode">
+
     <div id="pilgrims"></div>
     <button id="addPilgrimBtn">+ Add Pilgrim</button>
     <button id="deleteBtn" class="danger">Delete Profile</button>
   </details>
+
   <p class="note">Data is stored locally in Edge. Review every field before continuing. This extension does not automate CAPTCHA, payment, queues, or final submission.</p>
   <script src="popup.js"></script>
 </body>
