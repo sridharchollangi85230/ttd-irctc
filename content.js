@@ -21,8 +21,6 @@
     return true;
   };
 
-  // Important: do not dispatch a click and then call element.click(). That
-  // activates PrimeNG twice, opening and immediately closing the dropdown.
   const clickOnce = element => {
     if (!element) return false;
     element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
@@ -43,7 +41,6 @@
     if (!field || !value) return false;
     const wanted = normalize(value);
     if (selectedText(field) === wanted) return true;
-
     const trigger = field.querySelector(".ui-dropdown-trigger") || field.querySelector(".ui-dropdown-label-container");
     if (!clickOnce(trigger)) return false;
 
@@ -98,14 +95,12 @@
     return !dialog();
   };
 
-  // Finds an IRCTC checkbox from its visible label text. The page has changed
-  // checkbox markup between releases, so this supports native inputs and
-  // custom role="checkbox" controls.
   const checkboxForText = text => {
     const wanted = normalize(text);
     const controls = [...document.querySelectorAll("input[type='checkbox'], [role='checkbox']")];
     for (const control of controls) {
-      const label = control.closest("label") || document.querySelector(`label[for='${control.id}']");
+      // The previous version had mismatched quote characters in this selector.
+      const label = control.closest("label") || (control.id ? document.querySelector(`label[for="${CSS.escape(control.id)}"]`) : null);
       const container = label || control.parentElement?.parentElement || control.parentElement;
       if (normalize(container?.textContent).includes(wanted)) return control;
     }
@@ -116,7 +111,9 @@
     return label.querySelector("input[type='checkbox'], [role='checkbox']") || label;
   };
 
-  const checked = control => control?.matches("input[type='checkbox']") ? control.checked : control?.getAttribute("aria-checked") === "true";
+  const checked = control => control?.matches("input[type='checkbox']")
+    ? control.checked
+    : control?.getAttribute("aria-checked") === "true";
 
   const tickOption = async text => {
     for (let attempt = 0; attempt < 40; attempt++) {
@@ -147,13 +144,22 @@
           return;
         }
         const passengers = Array.isArray(message.passengers) ? message.passengers : [];
-        if (!passengers.length) { sendResponse({ message: "Add at least one passenger to the profile." }); return; }
+        if (!passengers.length) {
+          sendResponse({ message: "Add at least one passenger to the profile." });
+          return;
+        }
         let completed = 0;
         for (const passenger of passengers) {
           if (!await openPassenger()) break;
           const result = await fillPassenger(passenger);
           if (!result.nameOk || !result.ageOk || !result.genderOk || !result.countryOk || !result.preferenceOk) {
-            const missing = [!result.nameOk && "Name", !result.ageOk && "Age", !result.genderOk && "Gender", !result.countryOk && "Country", !result.preferenceOk && "Preference"].filter(Boolean).join(", ");
+            const missing = [
+              !result.nameOk && "Name",
+              !result.ageOk && "Age",
+              !result.genderOk && "Gender",
+              !result.countryOk && "Country",
+              !result.preferenceOk && "Preference"
+            ].filter(Boolean).join(", ");
             sendResponse({ message: `Passenger ${completed + 1} could not be completed. Check: ${missing}.` });
             return;
           }
