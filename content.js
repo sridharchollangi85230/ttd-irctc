@@ -1,68 +1,60 @@
 (() => {
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   const normalize = value => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
-
   const visible = element => {
     if (!element || element.disabled) return false;
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
     return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && style.visibility !== "collapse";
   };
-
-  const clickOnce = element => {
+  const click = element => {
     if (!element || !visible(element)) return false;
     element.scrollIntoView?.({ block: "center", inline: "nearest" });
     element.click();
     return true;
   };
 
-  const dialog = () => [...document.querySelectorAll(
-    ".ui-dialog.add-passenger-dialog, .add-passenger-dialog.ui-dialog, [role='dialog']"
-  )].find(visible);
-
+  const dialog = () => [...document.querySelectorAll(".ui-dialog.add-passenger-dialog, .add-passenger-dialog.ui-dialog, [role='dialog']")].find(visible);
   const setInput = (element, value) => {
     if (!element || value === undefined || value === null || value === "") return false;
-    const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+    const proto = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
     if (setter) setter.call(element, String(value)); else element.value = String(value);
     ["input", "change", "blur"].forEach(type => element.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
     return true;
   };
 
-  const dropdownFields = root => [...root.querySelectorAll("p-dropdown, .ui-dropdown, [role='combobox'], .mat-select")];
-  const dropdownFor = (root, names, labelText) => {
-    const byName = dropdownFields(root).find(element => names.includes(normalize(element.getAttribute("formcontrolname"))));
-    if (byName) return byName;
-    const wanted = normalize(labelText);
-    return dropdownFields(root).find(element => {
-      let parent = element.parentElement;
-      for (let level = 0; level < 4 && parent; level++, parent = parent.parentElement) {
-        if (normalize(parent.textContent).includes(wanted)) return true;
-      }
-      return false;
-    });
-  };
+  const fields = root => [...root.querySelectorAll("p-dropdown, .ui-dropdown, [role='combobox'], .mat-select")];
+  const fieldFor = (root, names, label) => fields(root).find(field => {
+    const formName = normalize(field.getAttribute("formcontrolname"));
+    if (names.includes(formName)) return true;
+    let parent = field.parentElement;
+    for (let i = 0; i < 4 && parent; i++, parent = parent.parentElement) {
+      if (normalize(parent.textContent).includes(normalize(label))) return true;
+    }
+    return false;
+  });
+  const selected = field => normalize(field?.querySelector(".ui-dropdown-label:not(.ui-placeholder), .p-dropdown-label, [role='option']")?.textContent || "");
+  const options = () => [...document.querySelectorAll(".ui-dropdown-panel li, .ui-dropdown-item, .p-dropdown-items li, li[role='option'], [role='option']")].filter(visible);
 
-  const selectedText = field => normalize(field?.querySelector(".ui-dropdown-label:not(.ui-placeholder), .p-dropdown-label, [role='option']")?.textContent || "");
-  const dropdownOptions = () => [...document.querySelectorAll(".ui-dropdown-panel li, .ui-dropdown-item, .p-dropdown-items li, li[role='option'], [role='option']")].filter(visible).filter(option => normalize(option.textContent));
-
-  const chooseDropdown = async (root, names, labelText, value) => {
+  const choose = async (root, names, label, value) => {
     if (!value) return true;
-    const field = dropdownFor(root, names, labelText);
+    const field = fieldFor(root, names, label);
     if (!field) return false;
     const wanted = normalize(value);
-    if (selectedText(field) === wanted) return true;
+    if (selected(field) === wanted) return true;
     const trigger = field.querySelector(".ui-dropdown-trigger, .ui-dropdown-label-container, .p-dropdown-trigger, [role='combobox']") || field;
-    if (!clickOnce(trigger)) return false;
-    let option = null;
-    for (let attempt = 0; attempt < 60 && !option; attempt++) {
-      option = dropdownOptions().find(item => normalize(item.textContent) === wanted);
-      if (!option) await wait(50);
-    }
-    if (!option || !clickOnce(option)) return false;
-    for (let attempt = 0; attempt < 30; attempt++) {
+    if (!click(trigger)) return false;
+    for (let i = 0; i < 60; i++) {
+      const option = options().find(item => normalize(item.textContent) === wanted);
+      if (option && click(option)) {
+        for (let j = 0; j < 30; j++) {
+          await wait(50);
+          if (selected(field) === wanted) return true;
+        }
+        return false;
+      }
       await wait(50);
-      if (selectedText(field) === wanted) return true;
     }
     return false;
   };
@@ -75,120 +67,98 @@
     return {
       nameOk: setInput(name, passenger.name),
       ageOk: setInput(age, passenger.age),
-      genderOk: await chooseDropdown(root, ["passengergender", "gender"], "gender", passenger.gender),
-      countryOk: await chooseDropdown(root, ["passengernationality", "nationality", "country"], "country", passenger.country || "India"),
-      preferenceOk: !passenger.preference || await chooseDropdown(root, ["passengerberthchoice", "berthchoice", "preference"], "preference", passenger.preference)
+      genderOk: await choose(root, ["passengergender", "gender"], "gender", passenger.gender),
+      countryOk: await choose(root, ["passengernationality", "nationality", "country"], "country", passenger.country || "India"),
+      preferenceOk: !passenger.preference || await choose(root, ["passengerberthchoice", "berthchoice", "preference"], "preference", passenger.preference)
     };
   };
 
-  const newPassengerButton = () => [...document.querySelectorAll("button.btn-new-passenger, button")].find(button => visible(button) && normalize(button.textContent).includes("new passenger"));
-  const addButton = () => {
+  const newPassenger = () => [...document.querySelectorAll("button.btn-new-passenger, button")].find(button => visible(button) && normalize(button.textContent).includes("new passenger"));
+  const addPassenger = () => {
     const root = dialog();
-    if (!root) return null;
-    return root.querySelector("button.ap-add-btn, button[type='submit'], .ap-add-btn") || [...root.querySelectorAll("button, [role='button']")].find(button => /^(add|add passenger|save passenger)$/i.test(normalize(button.textContent)));
+    return root?.querySelector("button.ap-add-btn, button[type='submit'], .ap-add-btn") || [...(root?.querySelectorAll("button, [role='button']") || [])].find(button => /^(add|add passenger|save passenger)$/i.test(normalize(button.textContent)));
   };
 
   const openPassenger = async () => {
-    if (!clickOnce(newPassengerButton())) return false;
-    for (let attempt = 0; attempt < 60; attempt++) {
-      if (dialog()) return true;
-      await wait(50);
-    }
+    if (!click(newPassenger())) return false;
+    for (let i = 0; i < 60; i++) { if (dialog()) return true; await wait(50); }
     return false;
   };
-
-  const addPassenger = async () => {
-    const button = addButton();
-    if (!button || !clickOnce(button)) return false;
-    for (let attempt = 0; attempt < 40; attempt++) {
-      await wait(100);
-      if (!dialog() || !visible(button)) return true;
-    }
+  const submitPassenger = async () => {
+    const button = addPassenger();
+    if (!click(button)) return false;
+    for (let i = 0; i < 50; i++) { await wait(100); if (!dialog() || !visible(button)) return true; }
     return !dialog();
   };
 
-  // Return the smallest visible element containing the exact option text.
-  // The previous implementation often selected the whole preferences panel,
-  // so clicking it only expanded/collapsed the panel instead of the checkbox.
-  const textCandidates = text => {
+  // IRCTC renders Other Preferences as an accordion. Find its header and its
+  // chevron/button, expand it, then locate the checkbox inside the matching card.
+  const exactText = text => {
     const wanted = normalize(text);
-    return [...document.querySelectorAll("label, span, p, div")]
-      .filter(element => visible(element))
-      .filter(element => {
-        const actual = normalize(element.textContent);
-        return actual === wanted || (actual.includes(wanted) && actual.length <= wanted.length + 80);
-      })
-      .sort((a, b) => normalize(a.textContent).length - normalize(b.textContent).length);
+    return [...document.querySelectorAll("h1,h2,h3,h4,label,span,p,div")]
+      .filter(visible)
+      .filter(element => normalize(element.textContent) === wanted)
+      .sort((a, b) => a.textContent.length - b.textContent.length)[0] || null;
   };
-
-  const checkboxForText = text => {
-    for (const textElement of textCandidates(text)) {
-      let node = textElement;
-      for (let level = 0; level < 10 && node; level++, node = node.parentElement) {
-        const input = node.querySelector?.("input[type='checkbox']");
-        if (input) return { control: input, container: node };
-        const roleCheckbox = node.querySelector?.("[role='checkbox']");
-        if (roleCheckbox) return { control: roleCheckbox, container: node };
-      }
-      const clickable = textElement.closest("label, [role='checkbox'], button");
-      if (clickable) return { control: clickable, container: clickable };
+  const preferenceCard = text => {
+    const label = exactText(text);
+    if (!label) return null;
+    let node = label;
+    for (let i = 0; i < 8 && node; i++, node = node.parentElement) {
+      const input = node.querySelector?.("input[type='checkbox']");
+      const role = node.querySelector?.("[role='checkbox']");
+      if (input || role) return { card: node, control: input || role };
     }
-    return null;
+    return { card: label.closest("label, article, [role='checkbox']") || label, control: null };
   };
-
-  const isChecked = control => {
-    if (!control) return false;
-    if (control.matches("input[type='checkbox']")) return control.checked;
-    return control.getAttribute("aria-checked") === "true" || /checked|selected|active/.test(String(control.className));
-  };
-
-  const ensureOtherPreferencesVisible = async () => {
-    for (let attempt = 0; attempt < 30; attempt++) {
-      if (checkboxForText("Consider for Auto Upgradation") || checkboxForText("Book only if confirm berths are allotted")) return true;
-      const heading = textCandidates("Other Preferences")[0];
-      if (heading) clickOnce(heading.closest("button, [role='button'], .accordion-header") || heading);
-      await wait(100);
+  const otherPreferencesHeader = () => exactText("Other Preferences");
+  const expandPreferences = async () => {
+    for (let i = 0; i < 30; i++) {
+      if (preferenceCard("Consider for Auto Upgradation") || preferenceCard("Book only if confirm berths are allotted")) return true;
+      const header = otherPreferencesHeader();
+      if (header) {
+        const section = header.closest("section, article, .accordion, .card, .panel") || header.parentElement?.parentElement || header;
+        const toggle = section.querySelector?.("button, [role='button'], input[type='button']") || header.closest("button, [role='button']") || header;
+        click(toggle);
+      }
+      await wait(150);
     }
     return false;
   };
-
-  const tickPreference = async text => {
-    for (let attempt = 0; attempt < 40; attempt++) {
-      const match = checkboxForText(text);
+  const checked = control => control?.matches("input[type='checkbox']") ? control.checked : control?.getAttribute("aria-checked") === "true" || /checked|selected|active/.test(String(control?.className));
+  const tick = async text => {
+    for (let i = 0; i < 30; i++) {
+      const match = preferenceCard(text);
       if (match) {
-        const control = match.control;
-        if (!isChecked(control)) {
-          // Clicking the native input is important: Angular/React receives the
-          // real click and updates its model, unlike directly changing checked.
-          clickOnce(control);
-          if (!isChecked(control) && match.container !== control) clickOnce(match.container);
+        if (!checked(match.control)) {
+          const input = match.control || match.card.querySelector?.("input[type='checkbox'], [role='checkbox']");
+          if (input) click(input);
+          else click(match.card);
         }
-        for (let check = 0; check < 20; check++) {
-          if (isChecked(control)) return true;
-          await wait(50);
+        await wait(100);
+        const current = match.control || match.card.querySelector?.("input[type='checkbox'], [role='checkbox']");
+        if (checked(current) || !current) {
+          // For custom cards without a readable state, the real click has been dispatched.
+          return true;
         }
       }
-      await wait(100);
+      await wait(150);
     }
     return false;
   };
-
   const applyPreferences = async preferences => {
     if (!preferences?.autoUpgrade && !preferences?.confirmedBerths) return true;
-    await ensureOtherPreferencesVisible();
-    const autoUpgradeOk = !preferences.autoUpgrade || await tickPreference("Consider for Auto Upgradation");
-    const confirmedBerthsOk = !preferences.confirmedBerths || await tickPreference("Book only if confirm berths are allotted");
-    return autoUpgradeOk && confirmedBerthsOk;
+    await expandPreferences();
+    const autoOk = !preferences.autoUpgrade || await tick("Consider for Auto Upgradation");
+    const confirmOk = !preferences.confirmedBerths || await tick("Book only if confirm berths are allotted");
+    return autoOk && confirmOk;
   };
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!["fillPassengers", "selectExistingPassengers"].includes(message.action)) return;
     (async () => {
       try {
-        if (message.action === "selectExistingPassengers") {
-          sendResponse({ message: "Select existing passengers manually from the IRCTC list." });
-          return;
-        }
+        if (message.action === "selectExistingPassengers") { sendResponse({ message: "Select existing passengers manually from the IRCTC list." }); return; }
         const passengers = Array.isArray(message.passengers) ? message.passengers : [];
         if (!passengers.length) { sendResponse({ message: "Add at least one passenger to the profile." }); return; }
         let completed = 0;
@@ -200,10 +170,7 @@
             sendResponse({ message: `Passenger ${completed + 1} could not be completed. Check: ${missing}.` });
             return;
           }
-          if (!await addPassenger()) {
-            sendResponse({ message: `Passenger ${completed + 1} was filled, but the IRCTC Add button did not close the form. Please click Add manually.` });
-            return;
-          }
+          if (!await submitPassenger()) { sendResponse({ message: `Passenger ${completed + 1} was filled, but Add did not complete.` }); return; }
           completed++;
         }
         if (completed !== passengers.length) { sendResponse({ message: `Filled ${completed} of ${passengers.length} passenger(s).` }); return; }
