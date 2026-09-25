@@ -98,6 +98,46 @@
     return !dialog();
   };
 
+  // Finds an IRCTC checkbox from its visible label text. The page has changed
+  // checkbox markup between releases, so this supports native inputs and
+  // custom role="checkbox" controls.
+  const checkboxForText = text => {
+    const wanted = normalize(text);
+    const controls = [...document.querySelectorAll("input[type='checkbox'], [role='checkbox']")];
+    for (const control of controls) {
+      const label = control.closest("label") || document.querySelector(`label[for='${control.id}']");
+      const container = label || control.parentElement?.parentElement || control.parentElement;
+      if (normalize(container?.textContent).includes(wanted)) return control;
+    }
+
+    const labels = [...document.querySelectorAll("label, p-checkbox, .checkbox, [class*='checkbox']")];
+    const label = labels.find(element => normalize(element.textContent).includes(wanted));
+    if (!label) return null;
+    return label.querySelector("input[type='checkbox'], [role='checkbox']") || label;
+  };
+
+  const checked = control => control?.matches("input[type='checkbox']") ? control.checked : control?.getAttribute("aria-checked") === "true";
+
+  const tickOption = async text => {
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const control = checkboxForText(text);
+      if (control) {
+        if (!checked(control)) clickOnce(control);
+        for (let check = 0; check < 20; check++) {
+          if (checked(control)) return true;
+          await wait(50);
+        }
+      }
+      await wait(50);
+    }
+    return false;
+  };
+
+  const applyOtherPreferences = async () => ({
+    autoUpgrade: await tickOption("Consider for Auto Upgradation"),
+    confirmedBerths: await tickOption("Book only if confirm berths are allotted")
+  });
+
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!["fillPassengers", "selectExistingPassengers"].includes(message.action)) return;
     (async () => {
@@ -120,7 +160,15 @@
           if (!await addPassenger()) break;
           completed++;
         }
-        sendResponse({ message: completed === passengers.length ? `Added and filled ${completed} passenger(s). Review all details before continuing.` : `Filled ${completed} of ${passengers.length} passenger(s).` });
+        if (completed !== passengers.length) {
+          sendResponse({ message: `Filled ${completed} of ${passengers.length} passenger(s). Review the page and complete the remaining steps manually.` });
+          return;
+        }
+        const preferences = await applyOtherPreferences();
+        const preferenceStatus = preferences.autoUpgrade && preferences.confirmedBerths
+          ? "Both booking preferences were selected."
+          : "Passenger details were filled, but one or more booking preferences could not be selected; please check them manually.";
+        sendResponse({ message: `Added and filled ${completed} passenger(s). ${preferenceStatus} Review all details before continuing.` });
       } catch (error) {
         console.error("IRCTC Passenger Autofill:", error);
         sendResponse({ message: "Could not fill the passenger form. Please review manually." });
