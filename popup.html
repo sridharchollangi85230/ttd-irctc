@@ -22,7 +22,13 @@
     <div id="passengers"></div>
     <button id="addPassengerBtn">+ Add Passenger</button>
   </details>
-  <p class="note">This extension opens and fills one IRCTC passenger dialog at a time. It does not automate CAPTCHA, payment, queue handling, or final booking submission. Review every passenger before continuing.</p>
+  <fieldset class="preferences">
+    <legend>IRCTC booking preferences</legend>
+    <label class="check-row"><input id="autoUpgrade" type="checkbox"><span>Consider for Auto Upgradation</span></label>
+    <label class="check-row"><input id="confirmedBerths" type="checkbox"><span>Book only if confirm berths are allotted.</span></label>
+    <p class="note">Select these here to select them on the IRCTC form.</p>
+  </fieldset>
+  <p class="note">Review all details before continuing. CAPTCHA, payment, and final booking are not automated.</p>
   <script src="popup.js"></script>
 </body>
 </html>
