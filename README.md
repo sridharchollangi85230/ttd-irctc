@@ -1,23 +1,12 @@
-# TTD Smart Autofill for Microsoft Edge
+# IRCTC Passenger Autofill
 
-This folder is a Manifest V3 Edge extension for the TTD pilgrim-details page.
+A Microsoft Edge Manifest V3 extension for filling multiple IRCTC passenger dialogs one after another.
 
-## Features
+## Multiple passengers
 
-- Multiple local profiles
-- Multiple pilgrims per profile
-- Name, age, gender, photo ID proof, and photo ID number
-- Fill only; it does not submit the booking
-- No CAPTCHA, queue, payment, or booking automation
+1. Add each person to the profile with **+ Add Passenger**.
+2. Click **Add & Fill All Passengers**.
+3. The extension clicks **+ New Passenger**, fills one passenger, clicks the modal's **Add Passenger/Save Passenger** action, waits for the passenger to be added, and repeats for the next person.
+4. Review every passenger manually before continuing.
 
-## Install
-
-1. Download the repository branch as a ZIP from GitHub.
-2. Extract it.
-3. Open `edge://extensions` and enable Developer mode.
-4. Select **Load unpacked**.
-5. Select the extracted `ttd-edge-autofill` folder, the one containing `manifest.json`.
-6. Open or reload the TTD pilgrim-details page.
-7. Open the extension, create/select a profile, add pilgrims, and choose **Fill Form Only**.
-
-Review every field before continuing with the official booking flow.
+The extension does not automate CAPTCHA, payment, quota selection, queue handling, or final booking submission. If IRCTC changes the modal button text or layout, complete that step manually.
