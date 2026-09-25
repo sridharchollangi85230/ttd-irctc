@@ -28,13 +28,8 @@
     return true;
   };
 
-  const visiblePanels = () => [...document.querySelectorAll(
-    ".ui-dropdown-panel, .ap-dropdown-panel, .ui-dropdown-items-wrapper, [role='listbox']"
-  )].filter(visible);
-
-  const panelOptions = () => visiblePanels().flatMap(panel => [
-    ...panel.querySelectorAll("li.ui-dropdown-item, li[role='option'], .ui-dropdown-item, [role='option']")
-  ]).filter(visible).filter(item => normalize(item.textContent));
+  const visiblePanels = () => [...document.querySelectorAll(".ui-dropdown-panel, .ap-dropdown-panel, .ui-dropdown-items-wrapper, [role='listbox']")].filter(visible);
+  const panelOptions = () => visiblePanels().flatMap(panel => [...panel.querySelectorAll("li.ui-dropdown-item, li[role='option'], .ui-dropdown-item, [role='option']")]).filter(visible).filter(item => normalize(item.textContent));
 
   const chooseDropdown = async (name, value) => {
     const field = dropdown(name);
@@ -43,16 +38,11 @@
     if (selectedText(field) === wanted) return true;
     const trigger = field.querySelector(".ui-dropdown-trigger") || field.querySelector(".ui-dropdown-label-container");
     if (!clickOnce(trigger)) return false;
-
-    const option = await (async () => {
-      for (let attempt = 0; attempt < 60; attempt++) {
-        const match = panelOptions().find(item => normalize(item.textContent) === wanted);
-        if (match) return match;
-        await wait(50);
-      }
-      return null;
-    })();
-
+    let option = null;
+    for (let attempt = 0; attempt < 60 && !option; attempt++) {
+      option = panelOptions().find(item => normalize(item.textContent) === wanted);
+      if (!option) await wait(50);
+    }
     if (!option) return false;
     clickOnce(option);
     for (let attempt = 0; attempt < 30; attempt++) {
@@ -99,21 +89,19 @@
     const wanted = normalize(text);
     const controls = [...document.querySelectorAll("input[type='checkbox'], [role='checkbox']")];
     for (const control of controls) {
-      // The previous version had mismatched quote characters in this selector.
-      const label = control.closest("label") || (control.id ? document.querySelector(`label[for="${CSS.escape(control.id)}"]`) : null);
+      // Avoid a template selector here: some extension loaders report a parse
+      // error for the older label[for] template expression.
+      const label = control.closest("label") || [...document.querySelectorAll("label")].find(item => item.htmlFor === control.id);
       const container = label || control.parentElement?.parentElement || control.parentElement;
       if (normalize(container?.textContent).includes(wanted)) return control;
     }
-
     const labels = [...document.querySelectorAll("label, p-checkbox, .checkbox, [class*='checkbox']")];
     const label = labels.find(element => normalize(element.textContent).includes(wanted));
     if (!label) return null;
     return label.querySelector("input[type='checkbox'], [role='checkbox']") || label;
   };
 
-  const checked = control => control?.matches("input[type='checkbox']")
-    ? control.checked
-    : control?.getAttribute("aria-checked") === "true";
+  const checked = control => control?.matches("input[type='checkbox']") ? control.checked : control?.getAttribute("aria-checked") === "true";
 
   const tickOption = async text => {
     for (let attempt = 0; attempt < 40; attempt++) {
@@ -153,13 +141,7 @@
           if (!await openPassenger()) break;
           const result = await fillPassenger(passenger);
           if (!result.nameOk || !result.ageOk || !result.genderOk || !result.countryOk || !result.preferenceOk) {
-            const missing = [
-              !result.nameOk && "Name",
-              !result.ageOk && "Age",
-              !result.genderOk && "Gender",
-              !result.countryOk && "Country",
-              !result.preferenceOk && "Preference"
-            ].filter(Boolean).join(", ");
+            const missing = [!result.nameOk && "Name", !result.ageOk && "Age", !result.genderOk && "Gender", !result.countryOk && "Country", !result.preferenceOk && "Preference"].filter(Boolean).join(", ");
             sendResponse({ message: `Passenger ${completed + 1} could not be completed. Check: ${missing}.` });
             return;
           }
@@ -171,9 +153,7 @@
           return;
         }
         const preferences = await applyOtherPreferences();
-        const preferenceStatus = preferences.autoUpgrade && preferences.confirmedBerths
-          ? "Both booking preferences were selected."
-          : "Passenger details were filled, but one or more booking preferences could not be selected; please check them manually.";
+        const preferenceStatus = preferences.autoUpgrade && preferences.confirmedBerths ? "Both booking preferences were selected." : "Passenger details were filled, but one or more booking preferences could not be selected; please check them manually.";
         sendResponse({ message: `Added and filled ${completed} passenger(s). ${preferenceStatus} Review all details before continuing.` });
       } catch (error) {
         console.error("IRCTC Passenger Autofill:", error);
