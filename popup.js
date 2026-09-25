@@ -1,5 +1,5 @@
 const emptyPassenger = () => ({ name: "", age: "", gender: "Male", country: "India", preference: "" });
-const defaultData = { profiles: [{ id: crypto.randomUUID(), name: "Family passengers", passengers: [emptyPassenger()] }], selected: null };
+const defaultData = { profiles: [{ id: crypto.randomUUID(), name: "Family passengers", passengers: [emptyPassenger()] }], selected: null, preferences: { autoUpgrade: false, confirmedBerths: false } };
 let data;
 
 const current = () => data.profiles.find(profile => profile.id === data.selected) || data.profiles[0];
@@ -17,7 +17,10 @@ async function load() {
   data = await chrome.storage.local.get(defaultData);
   if (!data.profiles?.length) data.profiles = defaultData.profiles;
   data.profiles = data.profiles.map(migrateProfile);
+  data.preferences = { ...defaultData.preferences, ...(data.preferences || {}) };
   if (!data.selected || !data.profiles.some(profile => profile.id === data.selected)) data.selected = data.profiles[0].id;
+  document.getElementById("autoUpgrade").checked = data.preferences.autoUpgrade;
+  document.getElementById("confirmedBerths").checked = data.preferences.confirmedBerths;
   renderProfiles();
   renderEditor();
 }
@@ -55,11 +58,15 @@ function readEditor() {
   document.querySelectorAll("#passengers [data-key]").forEach(element => {
     profile.passengers[Number(element.dataset.index)][element.dataset.key] = element.value;
   });
+  data.preferences = {
+    autoUpgrade: document.getElementById("autoUpgrade").checked,
+    confirmedBerths: document.getElementById("confirmedBerths").checked
+  };
 }
 
 async function save() {
   readEditor();
-  await chrome.storage.local.set({ profiles: data.profiles, selected: data.selected });
+  await chrome.storage.local.set({ profiles: data.profiles, selected: data.selected, preferences: data.preferences });
   renderProfiles();
 }
 
@@ -68,7 +75,7 @@ async function send(action) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return status("No active tab.");
   try {
-    const response = await chrome.tabs.sendMessage(tab.id, { action, passengers: current().passengers });
+    const response = await chrome.tabs.sendMessage(tab.id, { action, passengers: current().passengers, preferences: data.preferences });
     status(response?.message || "Completed. Review all passenger details.");
   } catch (error) {
     console.error(error);
@@ -79,18 +86,20 @@ async function send(action) {
 document.getElementById("profileSelect").addEventListener("change", async event => {
   readEditor();
   data.selected = event.target.value;
-  await chrome.storage.local.set({ profiles: data.profiles, selected: data.selected });
+  await chrome.storage.local.set({ profiles: data.profiles, selected: data.selected, preferences: data.preferences });
   renderEditor();
 });
 document.getElementById("saveBtn").addEventListener("click", async () => { await save(); status("Profile saved locally."); });
 document.getElementById("fillAllBtn").addEventListener("click", () => send("fillPassengers"));
 document.getElementById("existingPassengerBtn").addEventListener("click", () => send("selectExistingPassengers"));
+document.getElementById("autoUpgrade").addEventListener("change", save);
+document.getElementById("confirmedBerths").addEventListener("change", save);
 document.getElementById("addPassengerBtn").addEventListener("click", () => { readEditor(); current().passengers.push(emptyPassenger()); renderEditor(); });
 document.getElementById("newBtn").addEventListener("click", async () => {
   readEditor();
   const profile = { id: crypto.randomUUID(), name: `Profile ${data.profiles.length + 1}`, passengers: [emptyPassenger()] };
   data.profiles.push(profile); data.selected = profile.id;
-  await chrome.storage.local.set({ profiles: data.profiles, selected: data.selected });
+  await chrome.storage.local.set({ profiles: data.profiles, selected: data.selected, preferences: data.preferences });
   renderProfiles(); renderEditor(); status("New profile created.");
 });
 document.getElementById("passengers").addEventListener("click", event => {
