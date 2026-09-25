@@ -1,12 +1,14 @@
 (() => {
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   const normalize = value => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+
   const visible = element => {
     if (!element || element.disabled) return false;
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
     return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && style.visibility !== "collapse";
   };
+
   const clickOnce = element => {
     if (!element || !visible(element)) return false;
     element.scrollIntoView?.({ block: "center", inline: "nearest" });
@@ -34,12 +36,13 @@
     const wanted = normalize(labelText);
     return dropdownFields(root).find(element => {
       let parent = element.parentElement;
-      for (let level = 0; level < 3 && parent; level++, parent = parent.parentElement) {
+      for (let level = 0; level < 4 && parent; level++, parent = parent.parentElement) {
         if (normalize(parent.textContent).includes(wanted)) return true;
       }
       return false;
     });
   };
+
   const selectedText = field => normalize(field?.querySelector(".ui-dropdown-label:not(.ui-placeholder), .p-dropdown-label, [role='option']")?.textContent || "");
   const dropdownOptions = () => [...document.querySelectorAll(".ui-dropdown-panel li, .ui-dropdown-item, .p-dropdown-items li, li[role='option'], [role='option']")].filter(visible).filter(option => normalize(option.textContent));
 
@@ -79,12 +82,10 @@
   };
 
   const newPassengerButton = () => [...document.querySelectorAll("button.btn-new-passenger, button")].find(button => visible(button) && normalize(button.textContent).includes("new passenger"));
-
   const addButton = () => {
     const root = dialog();
     if (!root) return null;
-    return root.querySelector("button.ap-add-btn, button[type='submit'], .ap-add-btn") ||
-      [...root.querySelectorAll("button, [role='button']")].find(button => /^(add|add passenger|save passenger)$/i.test(normalize(button.textContent)));
+    return root.querySelector("button.ap-add-btn, button[type='submit'], .ap-add-btn") || [...root.querySelectorAll("button, [role='button']")].find(button => /^(add|add passenger|save passenger)$/i.test(normalize(button.textContent)));
   };
 
   const openPassenger = async () => {
@@ -97,54 +98,71 @@
   };
 
   const addPassenger = async () => {
-    const root = dialog();
     const button = addButton();
-    if (!root || !button) return false;
-    clickOnce(button);
-    // IRCTC may keep the modal mounted briefly while updating Angular state.
+    if (!button || !clickOnce(button)) return false;
     for (let attempt = 0; attempt < 40; attempt++) {
       await wait(100);
-      if (!dialog()) return true;
-      if (!visible(button)) return true;
+      if (!dialog() || !visible(button)) return true;
     }
     return !dialog();
   };
 
-  const textElement = text => {
+  // Return the smallest visible element containing the exact option text.
+  // The previous implementation often selected the whole preferences panel,
+  // so clicking it only expanded/collapsed the panel instead of the checkbox.
+  const textCandidates = text => {
     const wanted = normalize(text);
-    return [...document.querySelectorAll("label, span, p, div")].find(element => {
-      if (!visible(element)) return false;
-      const actual = normalize(element.textContent);
-      return actual === wanted || (actual.includes(wanted) && actual.length <= wanted.length + 80);
-    });
+    return [...document.querySelectorAll("label, span, p, div")]
+      .filter(element => visible(element))
+      .filter(element => {
+        const actual = normalize(element.textContent);
+        return actual === wanted || (actual.includes(wanted) && actual.length <= wanted.length + 80);
+      })
+      .sort((a, b) => normalize(a.textContent).length - normalize(b.textContent).length);
   };
+
   const checkboxForText = text => {
-    const labelText = textElement(text);
-    if (!labelText) return null;
-    let node = labelText;
-    for (let level = 0; level < 8 && node; level++, node = node.parentElement) {
-      const input = node.querySelector?.("input[type='checkbox']");
-      if (input) return input;
-      const roleCheckbox = node.querySelector?.("[role='checkbox']");
-      if (roleCheckbox) return roleCheckbox;
+    for (const textElement of textCandidates(text)) {
+      let node = textElement;
+      for (let level = 0; level < 10 && node; level++, node = node.parentElement) {
+        const input = node.querySelector?.("input[type='checkbox']");
+        if (input) return { control: input, container: node };
+        const roleCheckbox = node.querySelector?.("[role='checkbox']");
+        if (roleCheckbox) return { control: roleCheckbox, container: node };
+      }
+      const clickable = textElement.closest("label, [role='checkbox'], button");
+      if (clickable) return { control: clickable, container: clickable };
     }
-    return labelText.closest("label, [role='checkbox'], button") || labelText;
+    return null;
   };
-  const isChecked = control => control?.matches("input[type='checkbox']") ? control.checked : control?.getAttribute("aria-checked") === "true" || /checked|selected|active/.test(String(control?.className));
+
+  const isChecked = control => {
+    if (!control) return false;
+    if (control.matches("input[type='checkbox']")) return control.checked;
+    return control.getAttribute("aria-checked") === "true" || /checked|selected|active/.test(String(control.className));
+  };
+
   const ensureOtherPreferencesVisible = async () => {
     for (let attempt = 0; attempt < 30; attempt++) {
-      if (textElement("Consider for Auto Upgradation") || textElement("Book only if confirm berths are allotted")) return true;
-      const heading = textElement("Other Preferences");
+      if (checkboxForText("Consider for Auto Upgradation") || checkboxForText("Book only if confirm berths are allotted")) return true;
+      const heading = textCandidates("Other Preferences")[0];
       if (heading) clickOnce(heading.closest("button, [role='button'], .accordion-header") || heading);
       await wait(100);
     }
     return false;
   };
+
   const tickPreference = async text => {
     for (let attempt = 0; attempt < 40; attempt++) {
-      const control = checkboxForText(text);
-      if (control) {
-        if (!isChecked(control)) clickOnce(control);
+      const match = checkboxForText(text);
+      if (match) {
+        const control = match.control;
+        if (!isChecked(control)) {
+          // Clicking the native input is important: Angular/React receives the
+          // real click and updates its model, unlike directly changing checked.
+          clickOnce(control);
+          if (!isChecked(control) && match.container !== control) clickOnce(match.container);
+        }
         for (let check = 0; check < 20; check++) {
           if (isChecked(control)) return true;
           await wait(50);
@@ -154,10 +172,13 @@
     }
     return false;
   };
+
   const applyPreferences = async preferences => {
     if (!preferences?.autoUpgrade && !preferences?.confirmedBerths) return true;
     await ensureOtherPreferencesVisible();
-    return (!preferences.autoUpgrade || await tickPreference("Consider for Auto Upgradation")) && (!preferences.confirmedBerths || await tickPreference("Book only if confirm berths are allotted"));
+    const autoUpgradeOk = !preferences.autoUpgrade || await tickPreference("Consider for Auto Upgradation");
+    const confirmedBerthsOk = !preferences.confirmedBerths || await tickPreference("Book only if confirm berths are allotted");
+    return autoUpgradeOk && confirmedBerthsOk;
   };
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
