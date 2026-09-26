@@ -1,2 +1,42 @@
-  <button id="fillBtn" class="primary">Fill Form Only</button>
-  <button id="fillContinueBtn" class="primary">Fill &amp; Continue</button>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>IRCTC Passenger Autofill</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h2>IRCTC Passenger Autofill</h2>
+  <div class="sub">Local passenger profiles with booking preferences</div>
+  <label for="profileSelect">Passenger profile</label>
+  <select id="profileSelect"></select>
+  <button id="fillAllBtn" class="primary">Add &amp; Fill All Passengers</button>
+  <button id="existingPassengerBtn">Select Existing Passenger</button>
+  <button id="saveBtn">Save Profile</button>
+  <button id="newBtn">New Profile</button>
+  <div id="status" class="status">Ready</div>
+  
+  <details open>
+    <summary>Other Preferences</summary>
+    <label class="checkbox-label">
+      <input type="checkbox" id="autoUpgrade">
+      Consider for Auto Upgradation
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" id="confirmBerthsOnly">
+      Book only if confirm berths are allotted.
+    </label>
+  </details>
+  
+  <details open>
+    <summary>Passenger details</summary>
+    <label for="profileName">Profile name</label>
+    <input id="profileName" placeholder="Family passengers">
+    <div id="passengers"></div>
+    <button id="addPassengerBtn">+ Add Passenger</button>
+  </details>
+  
+  <p class="note">This extension opens and fills one IRCTC passenger dialog at a time. It does not automate CAPTCHA, payment, queue handling, or final booking submission. Review every passenger and preference before continuing.</p>
+  <script src="popup.js"></script>
+</body>
+</html>
