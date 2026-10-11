@@ -37,11 +37,11 @@ function renderEditor() {
     const box = document.createElement("div");
     box.className = "passenger";
     box.innerHTML = `<h4>Passenger ${index + 1}</h4>
-      <label>Full Name as per Govt. ID</label><input data-key="name" data-index="${index}" value="${escapeHtml(passenger.name)}">
-      <label>Age</label><input data-key="age" data-index="${index}" value="${escapeHtml(passenger.age)}" type="number" min="1" max="120" inputmode="numeric">
+      <label>Full Name as per Govt. ID</label><input data-key="name" data-index="${index}" value="${escapeHtml(passenger.name)}" placeholder="Enter full name">
+      <label>Age</label><input data-key="age" data-index="${index}" value="${escapeHtml(passenger.age)}" type="number" min="1" max="120" inputmode="numeric" placeholder="Enter age">
       <label>Gender</label><select data-key="gender" data-index="${index}"><option>Male</option><option>Female</option><option>Transgender</option></select>
-      <label>Country</label><input data-key="country" data-index="${index}" value="${escapeHtml(passenger.country || "India")}">
-      <label>Preference</label><select data-key="preference" data-index="${index}"><option value="">Select</option><option>Lower</option><option>Middle</option><option>Upper</option><option>Side Lower</option><option>Side Upper</option></select>
+      <label>Country</label><input data-key="country" data-index="${index}" value="${escapeHtml(passenger.country || "India")}" placeholder="Country">
+      <label>Berth Preference</label><select data-key="preference" data-index="${index}"><option value="">Select</option><option>Lower</option><option>Middle</option><option>Upper</option><option>Side Lower</option><option>Side Upper</option></select>
       <button class="remove" data-remove="${index}">Remove Passenger</button>`;
     root.append(box);
     box.querySelector('[data-key="gender"]').value = passenger.gender || "Male";
@@ -66,13 +66,13 @@ async function save() {
 async function send(action) {
   await save();
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) return status("No active tab.");
+  if (!tab?.id) return status("No active tab. Make sure you are on the IRCTC website.");
   try {
     const response = await chrome.tabs.sendMessage(tab.id, { action, passengers: current().passengers });
-    status(response?.message || "Completed. Review all passenger details.");
+    status(response?.message || "Completed. Review all passenger details before continuing.");
   } catch (error) {
     console.error(error);
-    status("Open the IRCTC passenger page and reload it, then try again.");
+    status("Error: Open the IRCTC passenger page, ensure it is fully loaded, and try again. Check extension console for details.");
   }
 }
 
@@ -82,17 +82,26 @@ document.getElementById("profileSelect").addEventListener("change", async event 
   await chrome.storage.local.set({ profiles: data.profiles, selected: data.selected });
   renderEditor();
 });
+
 document.getElementById("saveBtn").addEventListener("click", async () => { await save(); status("Profile saved locally."); });
+
 document.getElementById("fillAllBtn").addEventListener("click", () => send("fillPassengers"));
+
 document.getElementById("existingPassengerBtn").addEventListener("click", () => send("selectExistingPassengers"));
+
 document.getElementById("addPassengerBtn").addEventListener("click", () => { readEditor(); current().passengers.push(emptyPassenger()); renderEditor(); });
+
 document.getElementById("newBtn").addEventListener("click", async () => {
   readEditor();
   const profile = { id: crypto.randomUUID(), name: `Profile ${data.profiles.length + 1}`, passengers: [emptyPassenger()] };
-  data.profiles.push(profile); data.selected = profile.id;
+  data.profiles.push(profile);
+  data.selected = profile.id;
   await chrome.storage.local.set({ profiles: data.profiles, selected: data.selected });
-  renderProfiles(); renderEditor(); status("New profile created.");
+  renderProfiles();
+  renderEditor();
+  status("New profile created.");
 });
+
 document.getElementById("passengers").addEventListener("click", event => {
   const index = event.target.dataset.remove;
   if (index === undefined) return;

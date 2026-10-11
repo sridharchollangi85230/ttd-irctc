@@ -1,131 +1,250 @@
 (() => {
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   const normalize = value => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
-  const visible = element => {
-    if (!element || element.disabled) return false;
-    const rect = element.getBoundingClientRect();
-    const style = getComputedStyle(element);
-    return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && style.visibility !== "collapse";
-  };
-
-  const dialog = () => [...document.querySelectorAll(".ui-dialog.add-passenger-dialog, .add-passenger-dialog.ui-dialog")].find(visible);
-  const dropdown = name => dialog()?.querySelector(`p-dropdown[formcontrolname="${name}"]`) || null;
-  const selectedText = field => normalize(field?.querySelector(".ui-dropdown-label:not(.ui-placeholder)")?.textContent || "");
 
   const setInput = (element, value) => {
     if (!element || value === undefined || value === null || value === "") return false;
     const proto = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-    if (setter) setter.call(element, String(value)); else element.value = String(value);
-    ["input", "change", "blur"].forEach(type => element.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
+    if (setter) setter.call(element, String(value));
+    else element.value = String(value);
+    ["input", "change", "blur", "focus"].forEach(type =>
+      element.dispatchEvent(new Event(type, { bubbles: true, composed: true }))
+    );
     return true;
   };
 
-  // Important: do not dispatch a click and then call element.click(). That
-  // activates PrimeNG twice, opening and immediately closing the dropdown.
-  const clickOnce = element => {
-    if (!element) return false;
-    element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-    element.click();
-    return true;
+  const getDialog = () => {
+    const dialogs = [
+      ...document.querySelectorAll(".ui-dialog.add-passenger-dialog"),
+      ...document.querySelectorAll(".add-passenger-dialog.ui-dialog"),
+      ...document.querySelectorAll(".add-passenger-dialog"),
+      ...document.querySelectorAll("[role='dialog'][class*='passenger']"),
+      ...document.querySelectorAll(".modal[class*='passenger']"),
+      ...document.querySelectorAll(".dialog[class*='passenger']")
+    ];
+    return dialogs.find(d => d && d.offsetParent !== null) || null;
   };
 
-  const visiblePanels = () => [...document.querySelectorAll(
-    ".ui-dropdown-panel, .ap-dropdown-panel, .ui-dropdown-items-wrapper, [role='listbox']"
-  )].filter(visible);
+  const findInputByLabel = (labelText, container = null) => {
+    const root = container || document;
+    const labels = [...root.querySelectorAll("label")];
+    const label = labels.find(l => normalize(l.textContent).includes(normalize(labelText)));
+    if (!label) return null;
+    const inputId = label.getAttribute("for");
+    if (inputId) return root.querySelector(`#${inputId}`);
+    return label.parentElement?.querySelector("input, textarea, select") || null;
+  };
 
-  const panelOptions = () => visiblePanels().flatMap(panel => [
-    ...panel.querySelectorAll("li.ui-dropdown-item, li[role='option'], .ui-dropdown-item, [role='option']")
-  ]).filter(visible).filter(item => normalize(item.textContent));
+  const findSelectByLabel = (labelText, container = null) => {
+    const root = container || document;
+    const labels = [...root.querySelectorAll("label")];
+    const label = labels.find(l => normalize(l.textContent).includes(normalize(labelText)));
+    if (!label) return null;
+    const selectId = label.getAttribute("for");
+    if (selectId) return root.querySelector(`#${selectId}`);
+    return label.parentElement?.querySelector("select") || null;
+  };
 
-  const chooseDropdown = async (name, value) => {
-    const field = dropdown(name);
-    if (!field || !value) return false;
-    const wanted = normalize(value);
-    if (selectedText(field) === wanted) return true;
+  const selectDropdownOption = async (selectEl, wantedValue) => {
+    if (!selectEl) return false;
+    const target = normalize(wantedValue);
 
-    const trigger = field.querySelector(".ui-dropdown-trigger") || field.querySelector(".ui-dropdown-label-container");
-    if (!clickOnce(trigger)) return false;
-
-    const option = await (async () => {
-      for (let attempt = 0; attempt < 60; attempt++) {
-        const match = panelOptions().find(item => normalize(item.textContent) === wanted);
-        if (match) return match;
-        await wait(50);
+    // Try standard select first
+    if (selectEl.tagName === "SELECT") {
+      const options = [...selectEl.options];
+      const match = options.find(
+        option => normalize(option.textContent) === target || normalize(option.value) === target
+      );
+      if (match) {
+        selectEl.value = match.value;
+        selectEl.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        return true;
       }
-      return null;
-    })();
+      return false;
+    }
 
-    if (!option) return false;
-    clickOnce(option);
-    for (let attempt = 0; attempt < 30; attempt++) {
-      await wait(50);
-      if (selectedText(field) === wanted) return true;
+    // Handle custom dropdowns
+    selectEl.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    selectEl.click();
+    await wait(200);
+
+    const allOptions = [
+      ...document.querySelectorAll("li.ui-dropdown-item, li[role='option'], .ui-dropdown-item, [role='option']"),
+      ...document.querySelectorAll(".dropdown-item, .select-item, [role='menuitem']")
+    ].filter(el => el.offsetParent !== null && el.textContent);
+
+    const matchedOption = allOptions.find(option => normalize(option.textContent) === target);
+    if (matchedOption) {
+      matchedOption.scrollIntoView?.({ block: "nearest" });
+      matchedOption.click();
+      await wait(200);
+      return true;
     }
     return false;
   };
 
   const fillPassenger = async passenger => {
-    const root = dialog();
-    if (!root) return { nameOk: false, ageOk: false, genderOk: false, countryOk: false, preferenceOk: false };
-    const nameOk = setInput(root.querySelector("input[formcontrolname='passengerName'], p-autocomplete input[role='searchbox']"), passenger.name);
-    const ageOk = setInput(root.querySelector("input[formcontrolname='passengerAge']"), passenger.age);
-    const genderOk = await chooseDropdown("passengerGender", passenger.gender);
-    const countryOk = await chooseDropdown("passengerNationality", passenger.country || "India");
-    const preferenceOk = await chooseDropdown("passengerBerthChoice", passenger.preference);
+    const dialog = getDialog();
+    const root = dialog || document;
+
+    // Fill Name
+    let nameInput =
+      root.querySelector("input[formcontrolname='passengerName']") ||
+      root.querySelector("input[name='passengerName']") ||
+      root.querySelector("input[placeholder*='Full Name'], input[placeholder*='full name']")
+    if (!nameInput) nameInput = findInputByLabel("full name", root);
+    const nameOk = setInput(nameInput, passenger.name);
+
+    // Fill Age
+    let ageInput =
+      root.querySelector("input[formcontrolname='passengerAge']") ||
+      root.querySelector("input[name='passengerAge']") ||
+      root.querySelector("input[type='number']");
+    if (!ageInput) ageInput = findInputByLabel("age", root);
+    const ageOk = setInput(ageInput, passenger.age);
+
+    // Fill Gender (Dropdown)
+    let genderSelect =
+      root.querySelector("select[formcontrolname='passengerGender']") ||
+      root.querySelector("select[name='passengerGender']") ||
+      root.querySelector("p-dropdown[formcontrolname='passengerGender']")
+    if (!genderSelect) genderSelect = findSelectByLabel("gender", root);
+    const genderOk = genderSelect ? await selectDropdownOption(genderSelect, passenger.gender || "Male") : false;
+
+    // Fill Country (Dropdown)
+    let countrySelect =
+      root.querySelector("select[formcontrolname='passengerNationality']") ||
+      root.querySelector("select[name='passengerNationality']") ||
+      root.querySelector("p-dropdown[formcontrolname='passengerNationality']")
+    if (!countrySelect) countrySelect = findSelectByLabel("country", root);
+    const countryOk = countrySelect ? await selectDropdownOption(countrySelect, passenger.country || "India") : false;
+
+    // Fill Berth Preference (Dropdown)
+    let preferenceSelect =
+      root.querySelector("select[formcontrolname='passengerBerthChoice']") ||
+      root.querySelector("select[name='passengerBerthChoice']") ||
+      root.querySelector("p-dropdown[formcontrolname='passengerBerthChoice']")
+    if (!preferenceSelect) preferenceSelect = findSelectByLabel("preference", root);
+    const preferenceOk = preferenceSelect ? await selectDropdownOption(preferenceSelect, passenger.preference) : false;
+
     return { nameOk, ageOk, genderOk, countryOk, preferenceOk };
   };
 
-  const newPassengerButton = () => [...document.querySelectorAll("button.btn-new-passenger")].find(visible);
-  const addButton = () => dialog()?.querySelector("button.ap-add-btn");
+  const getNewPassengerButton = () => {
+    const buttons = [
+      ...document.querySelectorAll("button.btn-new-passenger"),
+      ...document.querySelectorAll("button[title*='New Passenger']"),
+      ...document.querySelectorAll("button[aria-label*='New Passenger']"),
+      ...document.querySelectorAll("button").filter(b => b.textContent.includes("+ New Passenger") || b.textContent.includes("Add Infant"))
+    ];
+    return buttons.find(b => b && b.offsetParent !== null) || null;
+  };
 
-  const openPassenger = async () => {
-    const button = newPassengerButton();
-    if (!button) return false;
-    clickOnce(button);
-    for (let attempt = 0; attempt < 40; attempt++) {
-      if (dialog()) return true;
+  const getAddButton = () => {
+    const dialog = getDialog();
+    const root = dialog || document;
+    const buttons = [
+      root.querySelector("button.ap-add-btn"),
+      root.querySelector("button[title*='Add Passenger']"),
+      root.querySelector("button[aria-label*='Add Passenger']"),
+      ...root.querySelectorAll("button").filter(
+        b => b.textContent.includes("Add Passenger") || b.textContent.includes("Save") || b.textContent.includes("Continue")
+      )
+    ];
+    return buttons.find(b => b && b.offsetParent !== null) || null;
+  };
+
+  const openPassengerDialog = async () => {
+    const button = getNewPassengerButton();
+    if (!button) {
+      console.log("New Passenger button not found");
+      return false;
+    }
+    button.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    button.click();
+    for (let attempt = 0; attempt < 50; attempt++) {
       await wait(50);
+      if (getDialog()) return true;
     }
     return false;
   };
 
-  const addPassenger = async () => {
-    const button = addButton();
-    if (!button || !visible(button)) return false;
-    clickOnce(button);
-    await wait(500);
-    return !dialog();
+  const submitPassenger = async () => {
+    const button = getAddButton();
+    if (!button) {
+      console.log("Add/Save button not found");
+      return false;
+    }
+    button.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    button.click();
+    await wait(800);
+    return !getDialog();
   };
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!["fillPassengers", "selectExistingPassengers"].includes(message.action)) return;
+    if (!message.action || !["fillPassengers", "selectExistingPassengers"].includes(message.action))
+      return true;
+
     (async () => {
       try {
         if (message.action === "selectExistingPassengers") {
           sendResponse({ message: "Select existing passengers manually from the IRCTC list." });
           return;
         }
+
         const passengers = Array.isArray(message.passengers) ? message.passengers : [];
-        if (!passengers.length) { sendResponse({ message: "Add at least one passenger to the profile." }); return; }
+        if (!passengers.length) {
+          sendResponse({ message: "Add at least one passenger to the profile." });
+          return;
+        }
+
         let completed = 0;
         for (const passenger of passengers) {
-          if (!await openPassenger()) break;
+          console.log(`Processing passenger ${completed + 1}:`, passenger);
+          if (!(await openPassengerDialog())) {
+            console.log("Failed to open passenger dialog");
+            break;
+          }
+          await wait(500);
           const result = await fillPassenger(passenger);
+          console.log(`Fill result for passenger ${completed + 1}:`, result);
+
           if (!result.nameOk || !result.ageOk || !result.genderOk || !result.countryOk || !result.preferenceOk) {
-            const missing = [!result.nameOk && "Name", !result.ageOk && "Age", !result.genderOk && "Gender", !result.countryOk && "Country", !result.preferenceOk && "Preference"].filter(Boolean).join(", ");
-            sendResponse({ message: `Passenger ${completed + 1} could not be completed. Check: ${missing}.` });
+            const missing = [
+              !result.nameOk && "Name",
+              !result.ageOk && "Age",
+              !result.genderOk && "Gender",
+              !result.countryOk && "Country",
+              !result.preferenceOk && "Preference"
+            ]
+              .filter(Boolean)
+              .join(", ");
+            sendResponse({
+              message: `Passenger ${completed + 1} could not be completed. Failed to set: ${missing}. Check DevTools console for details.`
+            });
             return;
           }
-          if (!await addPassenger()) break;
+
+          if (!(await submitPassenger())) {
+            console.log("Failed to submit passenger");
+            break;
+          }
           completed++;
         }
-        sendResponse({ message: completed === passengers.length ? `Added and filled ${completed} passenger(s). Review all details before continuing.` : `Filled ${completed} of ${passengers.length} passenger(s).` });
+
+        sendResponse({
+          message:
+            completed === passengers.length
+              ? `Added and filled ${completed} passenger(s). Review all details before continuing.`
+              : `Filled ${completed} of ${passengers.length} passenger(s).`
+        });
       } catch (error) {
-        console.error("IRCTC Passenger Autofill:", error);
-        sendResponse({ message: "Could not fill the passenger form. Please review manually." });
+        console.error("IRCTC Passenger Autofill Error:", error);
+        sendResponse({ message: "Could not fill the passenger form. Check DevTools console for errors." });
       }
     })();
+
     return true;
   });
 })();

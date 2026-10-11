@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "IRCTC Passenger Autofill",
-  "version": "1.0.0",
-  "description": "Local-only IRCTC passenger profile autofill helper.",
+  "version": "2.0.0",
+  "description": "Local-only IRCTC passenger profile autofill helper with improved compatibility.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": ["https://www.irctc.co.in/*", "https://irctc.co.in/*"],
   "action": {
