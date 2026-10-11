@@ -17,12 +17,23 @@
   const setSelect = (selectEl, wantedValue) => {
     if (!selectEl || wantedValue === undefined || wantedValue === null || wantedValue === "") return false;
     const text = normalize(wantedValue);
-    const options = [...selectEl.options || []];
-    const match = options.find(option => normalize(option.textContent) === text || normalize(option.value) === text);
-    if (!match) return false;
-    selectEl.value = match.value;
-    selectEl.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
-    return true;
+    
+    // If it's an input field (text-based), just set the value
+    if (selectEl.tagName === "INPUT") {
+      return setInput(selectEl, wantedValue);
+    }
+    
+    // If it's a select dropdown
+    if (selectEl.tagName === "SELECT") {
+      const options = [...selectEl.options || []];
+      const match = options.find(option => normalize(option.textContent) === text || normalize(option.value) === text);
+      if (!match) return false;
+      selectEl.value = match.value;
+      selectEl.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+      return true;
+    }
+    
+    return false;
   };
 
   const setCheckbox = (element, checked) => {
@@ -35,61 +46,97 @@
     return true;
   };
 
-  const findByLabel = (labelText, selector = "input, select") => {
-    const labels = [...document.querySelectorAll("label")];
+  const findByLabel = (labelText, selector = "input, select", container = document) => {
+    const labels = [...container.querySelectorAll("label")];
     const label = labels.find(l => normalize(l.textContent).includes(normalize(labelText)));
     if (!label) return null;
     const inputId = label.getAttribute("for");
-    if (inputId) return document.querySelector(`#${CSS.escape(inputId)}`) || document.querySelector(`#${inputId}`);
-    return label.closest("form, div, td, tr, li")?.querySelector(selector) || null;
+    if (inputId) return container.querySelector(`#${CSS.escape(inputId)}`) || container.querySelector(`#${inputId}`);
+    return label.closest("form, div, fieldset, section, td, tr, li")?.querySelector(selector) || null;
   };
 
-  const checkboxByText = text => {
-    const label = [...document.querySelectorAll("label")].find(l => normalize(l.textContent).includes(normalize(text)));
+  const checkboxByText = (text, container = document) => {
+    const label = [...container.querySelectorAll("label")].find(l => normalize(l.textContent).includes(normalize(text)));
     if (!label) return null;
     const id = label.getAttribute("for");
-    if (id) return document.getElementById(id) || document.querySelector(`#${CSS.escape(id)}`);
-    return label.closest("div, tr, td, li")?.querySelector("input[type='checkbox']") || null;
+    if (id) return container.getElementById(id) || container.querySelector(`#${CSS.escape(id)}`);
+    return label.closest("div, tr, td, li, fieldset, section")?.querySelector("input[type='checkbox']") || null;
   };
 
-  const getPassengerNameInput = () => {
-    return (
-      document.querySelector("input[placeholder*='Full Name'], input[placeholder*='Govt. ID'], input[placeholder*='Name as per Govt'], input[placeholder*='full name'], input[placeholder*='Name'], input[name*='passengerName'], input[id*='name']") ||
-      findByLabel("Full Name", "input") ||
-      findByLabel("Govt. ID", "input") ||
-      findByLabel("Name as per", "input")
-    );
+  const getPassengerSections = () => {
+    // Find all passenger sections (by looking for "Passenger 1", "Passenger 2" headings or containers)
+    const sections = [];
+    const headings = [...document.querySelectorAll("h1, h2, h3, h4, h5, h6, legend, .passenger-heading, [class*='passenger']")];
+    
+    headings.forEach(heading => {
+      if (normalize(heading.textContent).includes("passenger")) {
+        const container = heading.closest("fieldset, div[class*='passenger'], section, form") || heading.parentElement;
+        if (container && !sections.includes(container)) {
+          sections.push(container);
+        }
+      }
+    });
+    
+    // Fallback: if no sections found, assume single form
+    if (sections.length === 0) return [document];
+    return sections;
   };
 
-  const getPassengerAgeInput = () => {
-    return (
-      document.querySelector("input[placeholder*='Age'], input[name*='passengerAge'], input[id*='age']") ||
-      findByLabel("Age", "input") ||
-      document.querySelector("input[type='number']")
-    );
-  };
+  const fillPassengerInSection = async (section, passenger) => {
+    // Find name input
+    const nameInput =
+      section.querySelector("input[placeholder*='Full Name'], input[placeholder*='Govt. ID'], input[placeholder*='Name as per'], input[placeholder*='full name'], input[name*='passengerName'], input[id*='name']") ||
+      findByLabel("Full Name", "input", section) ||
+      findByLabel("Govt. ID", "input", section) ||
+      findByLabel("Name as per", "input", section) ||
+      section.querySelector("input[type='text']:not([placeholder*='GST']):not([placeholder*='GSTIN']):not([placeholder*='Preferred']):not([id*='gst'])");
 
-  const getGenderSelect = () => {
-    return (
-      document.querySelector("select[title*='Gender'], select[name*='passengerGender'], select[id*='gender']") ||
-      findByLabel("Gender", "select")
-    );
-  };
+    // Find age input
+    const ageInput =
+      section.querySelector("input[placeholder*='Age'], input[name*='passengerAge'], input[id*='age'], input[type='number']") ||
+      findByLabel("Age", "input", section);
 
-  const getCountrySelect = () => {
-    return (
-      document.querySelector("select[title*='Country'], select[name*='passengerNationality'], select[id*='country']") ||
-      findByLabel("Country", "select")
-    );
-  };
+    // Find gender select/dropdown
+    const genderSelect =
+      section.querySelector("select[title*='Gender'], select[name*='passengerGender'], select[id*='gender']") ||
+      findByLabel("Gender", "select", section);
 
-  const getPreferenceSelect = () => {
-    return (
-      document.querySelector("select[title*='Preference'], select[name*='passengerBerthChoice'], select[id*='preference']") ||
-      findByLabel("Preference", "select") ||
-      findByLabel("Berth", "select") ||
-      findByLabel("Reservation Choice", "select")
-    );
+    // Find country input or select
+    const countrySelect =
+      section.querySelector("input[placeholder*='Country'], input[name*='passengerNationality'], input[id*='country']") ||
+      section.querySelector("select[title*='Country'], select[name*='passengerNationality'], select[id*='country']") ||
+      findByLabel("Country", "input", section) ||
+      findByLabel("Country", "select", section);
+
+    // Find berth preference input or select
+    const preferenceSelect =
+      section.querySelector("input[placeholder*='Preference'], input[placeholder*='Berth'], input[name*='passengerBerthChoice'], input[id*='preference'], input[id*='berth']") ||
+      section.querySelector("select[title*='Preference'], select[name*='passengerBerthChoice'], select[id*='preference'], select[title*='Berth']") ||
+      findByLabel("Berth Preference", "input", section) ||
+      findByLabel("Berth Preference", "select", section) ||
+      findByLabel("Preference", "input", section) ||
+      findByLabel("Preference", "select", section);
+
+    // Scroll section into view
+    section.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    await wait(200);
+
+    // Fill fields
+    const nameOk = setInput(nameInput, passenger.name);
+    await wait(50);
+    const ageOk = setInput(ageInput, passenger.age);
+    await wait(50);
+    const genderOk = genderSelect ? setSelect(genderSelect, passenger.gender || "Male") : true;
+    await wait(50);
+    const countryOk = countrySelect ? setSelect(countrySelect, passenger.country || "India") : true;
+    await wait(50);
+    const preferenceOk = preferenceSelect ? setSelect(preferenceSelect, passenger.preference || "") : true;
+
+    console.log(`Passenger fill result:`, { nameOk, ageOk, genderOk, countryOk, preferenceOk });
+    console.log(`Name input: ${nameInput?.tagName} ${nameInput?.id || nameInput?.name || nameInput?.placeholder}`);
+    console.log(`Preference input: ${preferenceSelect?.tagName} ${preferenceSelect?.id || preferenceSelect?.name || preferenceSelect?.placeholder}`);
+
+    return { nameOk, ageOk, genderOk, countryOk, preferenceOk };
   };
 
   const getAddPassengerButton = () => {
@@ -105,26 +152,6 @@
     });
   };
 
-  const fillPassengerForm = async passenger => {
-    const nameInput = getPassengerNameInput();
-    const ageInput = getPassengerAgeInput();
-    const genderSelect = getGenderSelect();
-    const countrySelect = getCountrySelect();
-    const preferenceSelect = getPreferenceSelect();
-
-    const nameOk = setInput(nameInput, passenger.name);
-    await wait(50);
-    const ageOk = setInput(ageInput, passenger.age);
-    await wait(50);
-    const genderOk = genderSelect ? setSelect(genderSelect, passenger.gender || "Male") : true;
-    await wait(50);
-    const countryOk = countrySelect ? setSelect(countrySelect, passenger.country || "India") : true;
-    await wait(50);
-    const preferenceOk = preferenceSelect ? setSelect(preferenceSelect, passenger.preference || "") : true;
-
-    return { nameOk, ageOk, genderOk, countryOk, preferenceOk };
-  };
-
   const clickAddPassengerButton = async () => {
     const button = getAddPassengerButton();
     if (!button) {
@@ -132,7 +159,7 @@
       return false;
     }
     console.log("Clicking Add Passenger button:", button.textContent.trim());
-    button.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    button.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
     button.click();
     await wait(1200);
     return true;
@@ -175,7 +202,12 @@
           console.log(`\n--- Processing passenger ${i + 1} / ${passengers.length} ---`);
           console.log("Passenger data:", passenger);
 
-          const result = await fillPassengerForm(passenger);
+          // Get passenger sections dynamically to handle new sections added by the form
+          const sections = getPassengerSections();
+          console.log(`Found ${sections.length} passenger section(s)`);
+
+          let targetSection = sections[i] || sections[sections.length - 1];
+          const result = await fillPassengerInSection(targetSection, passenger);
           console.log(`Fill result:`, result);
 
           if (!result.nameOk || !result.ageOk || !result.countryOk) {
@@ -204,7 +236,7 @@
               console.error("Failed to click Add Passenger button");
               break;
             }
-            await wait(400);
+            await wait(600);
           }
         }
 
