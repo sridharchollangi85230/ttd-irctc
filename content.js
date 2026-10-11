@@ -1,6 +1,12 @@
 (() => {
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   const normalize = value => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+  const visible = element => {
+    if (!element) return false;
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && style.visibility !== "collapse";
+  };
 
   const setInput = (element, value) => {
     if (!element || value === undefined || value === null || value === "") return false;
@@ -20,8 +26,6 @@
     if (!selectEl || wantedValue === undefined || wantedValue === null || wantedValue === "") return false;
 
     const wanted = normalize(wantedValue);
-    if (selectEl.tagName === "INPUT") return setInput(selectEl, wantedValue);
-
     const options = [...(selectEl.options || [])];
     if (!options.length) return false;
 
@@ -42,7 +46,11 @@
       middle: 2,
       upper: 3,
       "side lower": 4,
-      "side upper": 5
+      "side upper": 5,
+      male: 1,
+      female: 2,
+      transgender: 3,
+      india: 1
     };
 
     const index = fallbackMap[wanted];
@@ -56,21 +64,25 @@
     return false;
   };
 
-  const getSectionForPassenger = (index = 0) => {
-    const nodes = [...document.querySelectorAll("div, section, fieldset")].filter(node => {
+  const getPassengerRows = () => {
+    const rows = [...document.querySelectorAll("div, section, fieldset")].filter(node => {
+      if (!node || !visible(node)) return false;
       const text = normalize(node.textContent || "");
-      return text.includes("passenger") && (
-        text.includes("full name") ||
-        text.includes("berth preference") ||
-        node.querySelector("input, select")
-      );
+      const hasName = !!node.querySelector("input[placeholder*='Full Name'], input[placeholder*='Govt. ID'], input[placeholder*='Name as per']");
+      const hasAge = !!node.querySelector("input[type='number']");
+      const hasGenderCountry = !!node.querySelector("select");
+      return (text.includes("passenger") || hasName || hasAge || hasGenderCountry) && (hasName || hasAge || hasGenderCountry);
     });
 
-    if (!nodes.length) return document;
-    return nodes[Math.min(index, nodes.length - 1)];
+    return rows.filter(node => {
+      const innerText = normalize(node.textContent || "");
+      return innerText.includes("full name") || innerText.includes("age") || innerText.includes("gender") || innerText.includes("country") || innerText.includes("berth preference");
+    });
   };
 
-  const fillPassengerInSection = async (section, passenger) => {
+  const fillPassengerSection = async (section, passenger) => {
+    if (!section) return { nameOk: false, ageOk: false, genderOk: false, countryOk: false, preferenceOk: false };
+
     const nameInput =
       section.querySelector("input[placeholder*='Full Name'], input[placeholder*='Govt. ID'], input[placeholder*='Name as per'], input[name*='passengerName'], input[id*='name']") ||
       section.querySelector("input[type='text']") ||
@@ -98,7 +110,7 @@
       section.querySelector("select[title*='Preference'], select[name*='passengerBerthChoice'], select[id*='preference'], select[title*='Berth']") ||
       [...section.querySelectorAll("select")].find(s => {
         const text = normalize(s.textContent || "");
-        return text.includes("no preference") || text.includes("lower") || text.includes("middle") || text.includes("upper");
+        return text.includes("no preference") || text.includes("lower") || text.includes("middle") || text.includes("upper") || text.includes("side lower") || text.includes("side upper");
       });
 
     const nameOk = setInput(nameInput, passenger.name);
@@ -111,7 +123,7 @@
   };
 
   const getAddPassengerButton = () => {
-    return [...document.querySelectorAll("button, a[role='button'], span[role='button']")].find(btn => {
+    const buttons = [...document.querySelectorAll("button, a[role='button'], span[role='button']")].filter(btn => {
       const text = normalize(btn.textContent || btn.innerText || "");
       return (
         text.includes("add passenger") ||
@@ -121,6 +133,8 @@
         text.includes("add infant without berth")
       );
     });
+
+    return buttons.find(visible) || buttons[buttons.length - 1] || null;
   };
 
   const clickAddPassengerButton = async () => {
@@ -151,8 +165,10 @@
         let completed = 0;
 
         for (let i = 0; i < passengers.length; i++) {
-          const section = getSectionForPassenger(i);
-          const result = await fillPassengerInSection(section, passengers[i]);
+          await wait(250);
+          const passengerRows = getPassengerRows();
+          const section = passengerRows[Math.min(i, passengerRows.length - 1)] || document;
+          const result = await fillPassengerSection(section, passengers[i]);
 
           if (!result.nameOk || !result.ageOk || !result.countryOk) {
             const missing = [!result.nameOk && "Name", !result.ageOk && "Age", !result.countryOk && "Country"]
@@ -167,7 +183,7 @@
           if (i < passengers.length - 1) {
             const added = await clickAddPassengerButton();
             if (!added) break;
-            await wait(500);
+            await wait(800);
           }
         }
 
