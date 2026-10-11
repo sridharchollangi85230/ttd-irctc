@@ -14,6 +14,28 @@
     return true;
   };
 
+  const clearInput = (element) => {
+    if (!element) return false;
+    const proto = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+    if (setter) setter.call(element, "");
+    else element.value = "";
+    ["input", "change", "blur", "focus"].forEach(type =>
+      element.dispatchEvent(new Event(type, { bubbles: true, composed: true }))
+    );
+    return true;
+  };
+
+  const setCheckbox = (element, checked) => {
+    if (!element) return false;
+    if (element.type !== "checkbox") return false;
+    element.checked = checked;
+    ["change", "click"].forEach(type =>
+      element.dispatchEvent(new Event(type, { bubbles: true, composed: true }))
+    );
+    return true;
+  };
+
   const getDialog = () => {
     const dialogs = [
       ...document.querySelectorAll(".ui-dialog.add-passenger-dialog"),
@@ -24,16 +46,6 @@
       ...document.querySelectorAll(".dialog[class*='passenger']")
     ];
     return dialogs.find(d => d && d.offsetParent !== null) || null;
-  };
-
-  const hasDirectPassengerForm = () => {
-    const root = document;
-    return !!(
-      root.querySelector("input[formcontrolname='passengerName'], input[name='passengerName'], input[placeholder*='Full Name'], input[placeholder*='full name']") ||
-      root.querySelector("input[formcontrolname='passengerAge'], input[name='passengerAge']") ||
-      root.querySelector("select[formcontrolname='passengerGender'], select[name='passengerGender'], p-dropdown[formcontrolname='passengerGender']") ||
-      root.querySelector("select[formcontrolname='passengerNationality'], select[name='passengerNationality'], p-dropdown[formcontrolname='passengerNationality']")
-    );
   };
 
   const findInputByLabel = (labelText, container = null) => {
@@ -56,6 +68,16 @@
     return label.parentElement?.querySelector("select") || null;
   };
 
+  const findCheckboxByLabel = (labelText, container = null) => {
+    const root = container || document;
+    const labels = [...root.querySelectorAll("label")];
+    const label = labels.find(l => normalize(l.textContent).includes(normalize(labelText)));
+    if (!label) return null;
+    const inputId = label.getAttribute("for");
+    if (inputId) return root.querySelector(`#${inputId}`);
+    return label.parentElement?.querySelector("input[type='checkbox']") || null;
+  };
+
   const selectDropdownOption = async (selectEl, wantedValue) => {
     if (!selectEl) return false;
     const target = normalize(wantedValue);
@@ -68,6 +90,7 @@
       if (match) {
         selectEl.value = match.value;
         selectEl.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        await wait(100);
         return true;
       }
       return false;
@@ -92,24 +115,49 @@
     return false;
   };
 
+  const clearPassengerForm = (root = document) => {
+    // Clear all passenger name inputs
+    root.querySelectorAll("input[formcontrolname='passengerName'], input[name='passengerName']").forEach(input => clearInput(input));
+    
+    // Clear all age inputs
+    root.querySelectorAll("input[formcontrolname='passengerAge'], input[name='passengerAge']").forEach(input => clearInput(input));
+    
+    // Reset all gender selects to default
+    root.querySelectorAll("select[formcontrolname='passengerGender'], select[name='passengerGender']").forEach(select => {
+      select.value = "Male";
+      select.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+    });
+    
+    console.log("Cleared passenger form fields");
+  };
+
   const fillPassenger = async passenger => {
     const dialog = getDialog();
     const root = dialog || document;
 
+    // Clear form first to remove old data
+    clearPassengerForm(root);
+    await wait(100);
+
+    // Fill Name
     let nameInput =
       root.querySelector("input[formcontrolname='passengerName']") ||
       root.querySelector("input[name='passengerName']") ||
       root.querySelector("input[placeholder*='Full Name'], input[placeholder*='full name']");
     if (!nameInput) nameInput = findInputByLabel("full name", root);
     const nameOk = setInput(nameInput, passenger.name);
+    await wait(100);
 
+    // Fill Age
     let ageInput =
       root.querySelector("input[formcontrolname='passengerAge']") ||
       root.querySelector("input[name='passengerAge']") ||
       root.querySelector("input[type='number']");
     if (!ageInput) ageInput = findInputByLabel("age", root);
     const ageOk = setInput(ageInput, passenger.age);
+    await wait(100);
 
+    // Fill Gender (Dropdown)
     let genderSelect =
       root.querySelector("select[formcontrolname='passengerGender']") ||
       root.querySelector("select[name='passengerGender']") ||
@@ -117,6 +165,7 @@
     if (!genderSelect) genderSelect = findSelectByLabel("gender", root);
     const genderOk = genderSelect ? await selectDropdownOption(genderSelect, passenger.gender || "Male") : false;
 
+    // Fill Country (Dropdown)
     let countrySelect =
       root.querySelector("select[formcontrolname='passengerNationality']") ||
       root.querySelector("select[name='passengerNationality']") ||
@@ -124,6 +173,7 @@
     if (!countrySelect) countrySelect = findSelectByLabel("country", root);
     const countryOk = countrySelect ? await selectDropdownOption(countrySelect, passenger.country || "India") : false;
 
+    // Fill Berth Preference (Dropdown)
     let preferenceSelect =
       root.querySelector("select[formcontrolname='passengerBerthChoice']") ||
       root.querySelector("select[name='passengerBerthChoice']") ||
@@ -141,7 +191,11 @@
       ...document.querySelectorAll("button.btn-new-passenger"),
       ...document.querySelectorAll("button[title*='New Passenger']"),
       ...document.querySelectorAll("button[aria-label*='New Passenger']"),
-      ...document.querySelectorAll("button").filter(b => b.textContent.includes("+ New Passenger") || b.textContent.includes("Add Infant"))
+      ...document.querySelectorAll("button").filter(b => 
+        b.textContent.includes("+ New Passenger") || 
+        b.textContent.includes("+ Add Passenger") || 
+        b.textContent.includes("Add Infant")
+      )
     ];
     return buttons.find(b => b && b.offsetParent !== null) || null;
   };
@@ -160,9 +214,22 @@
     return buttons.find(b => b && b.offsetParent !== null) || null;
   };
 
+  const enableCheckboxesByLabel = () => {
+    const autoUpgradeCheckbox = findCheckboxByLabel("auto upgrade");
+    const confirmBerthsCheckbox = findCheckboxByLabel("book only if confirm berths");
+    
+    if (autoUpgradeCheckbox) {
+      setCheckbox(autoUpgradeCheckbox, true);
+      console.log("Enabled: Auto Upgrade checkbox");
+    }
+    if (confirmBerthsCheckbox) {
+      setCheckbox(confirmBerthsCheckbox, true);
+      console.log("Enabled: Book only if confirm berths checkbox");
+    }
+  };
+
   const openPassengerDialog = async () => {
     if (getDialog()) return true;
-    if (hasDirectPassengerForm()) return true;
 
     const button = getNewPassengerButton();
     if (!button) {
@@ -179,8 +246,6 @@
   };
 
   const submitPassenger = async () => {
-    if (hasDirectPassengerForm()) return true;
-
     const button = getAddButton();
     if (!button) {
       console.log("Add/Save button not found");
@@ -188,7 +253,7 @@
     }
     button.scrollIntoView?.({ block: "nearest", inline: "nearest" });
     button.click();
-    await wait(800);
+    await wait(1000);
     return !getDialog();
   };
 
@@ -241,7 +306,11 @@
             break;
           }
           completed++;
+          await wait(500);
         }
+
+        // Enable preference checkboxes after all passengers are added
+        enableCheckboxesByLabel();
 
         sendResponse({
           message:
