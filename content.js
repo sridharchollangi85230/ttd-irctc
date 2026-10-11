@@ -26,6 +26,16 @@
     return dialogs.find(d => d && d.offsetParent !== null) || null;
   };
 
+  const hasDirectPassengerForm = () => {
+    const root = document;
+    return !!(
+      root.querySelector("input[formcontrolname='passengerName'], input[name='passengerName'], input[placeholder*='Full Name'], input[placeholder*='full name']") ||
+      root.querySelector("input[formcontrolname='passengerAge'], input[name='passengerAge']") ||
+      root.querySelector("select[formcontrolname='passengerGender'], select[name='passengerGender'], p-dropdown[formcontrolname='passengerGender']") ||
+      root.querySelector("select[formcontrolname='passengerNationality'], select[name='passengerNationality'], p-dropdown[formcontrolname='passengerNationality']")
+    );
+  };
+
   const findInputByLabel = (labelText, container = null) => {
     const root = container || document;
     const labels = [...root.querySelectorAll("label")];
@@ -50,7 +60,6 @@
     if (!selectEl) return false;
     const target = normalize(wantedValue);
 
-    // Try standard select first
     if (selectEl.tagName === "SELECT") {
       const options = [...selectEl.options];
       const match = options.find(
@@ -64,7 +73,6 @@
       return false;
     }
 
-    // Handle custom dropdowns
     selectEl.scrollIntoView?.({ block: "nearest", inline: "nearest" });
     selectEl.click();
     await wait(200);
@@ -88,15 +96,13 @@
     const dialog = getDialog();
     const root = dialog || document;
 
-    // Fill Name
     let nameInput =
       root.querySelector("input[formcontrolname='passengerName']") ||
       root.querySelector("input[name='passengerName']") ||
-      root.querySelector("input[placeholder*='Full Name'], input[placeholder*='full name']")
+      root.querySelector("input[placeholder*='Full Name'], input[placeholder*='full name']");
     if (!nameInput) nameInput = findInputByLabel("full name", root);
     const nameOk = setInput(nameInput, passenger.name);
 
-    // Fill Age
     let ageInput =
       root.querySelector("input[formcontrolname='passengerAge']") ||
       root.querySelector("input[name='passengerAge']") ||
@@ -104,29 +110,28 @@
     if (!ageInput) ageInput = findInputByLabel("age", root);
     const ageOk = setInput(ageInput, passenger.age);
 
-    // Fill Gender (Dropdown)
     let genderSelect =
       root.querySelector("select[formcontrolname='passengerGender']") ||
       root.querySelector("select[name='passengerGender']") ||
-      root.querySelector("p-dropdown[formcontrolname='passengerGender']")
+      root.querySelector("p-dropdown[formcontrolname='passengerGender']");
     if (!genderSelect) genderSelect = findSelectByLabel("gender", root);
     const genderOk = genderSelect ? await selectDropdownOption(genderSelect, passenger.gender || "Male") : false;
 
-    // Fill Country (Dropdown)
     let countrySelect =
       root.querySelector("select[formcontrolname='passengerNationality']") ||
       root.querySelector("select[name='passengerNationality']") ||
-      root.querySelector("p-dropdown[formcontrolname='passengerNationality']")
+      root.querySelector("p-dropdown[formcontrolname='passengerNationality']");
     if (!countrySelect) countrySelect = findSelectByLabel("country", root);
     const countryOk = countrySelect ? await selectDropdownOption(countrySelect, passenger.country || "India") : false;
 
-    // Fill Berth Preference (Dropdown)
     let preferenceSelect =
       root.querySelector("select[formcontrolname='passengerBerthChoice']") ||
       root.querySelector("select[name='passengerBerthChoice']") ||
-      root.querySelector("p-dropdown[formcontrolname='passengerBerthChoice']")
-    if (!preferenceSelect) preferenceSelect = findSelectByLabel("preference", root);
-    const preferenceOk = preferenceSelect ? await selectDropdownOption(preferenceSelect, passenger.preference) : false;
+      root.querySelector("p-dropdown[formcontrolname='passengerBerthChoice']") ||
+      root.querySelector("select[formcontrolname='passengerPreference']") ||
+      root.querySelector("select[name='passengerPreference']");
+    if (!preferenceSelect) preferenceSelect = findSelectByLabel("preference", root) || findSelectByLabel("berth", root) || findSelectByLabel("reservation choice", root);
+    const preferenceOk = preferenceSelect ? await selectDropdownOption(preferenceSelect, passenger.preference || "") : false;
 
     return { nameOk, ageOk, genderOk, countryOk, preferenceOk };
   };
@@ -156,6 +161,9 @@
   };
 
   const openPassengerDialog = async () => {
+    if (getDialog()) return true;
+    if (hasDirectPassengerForm()) return true;
+
     const button = getNewPassengerButton();
     if (!button) {
       console.log("New Passenger button not found");
@@ -171,6 +179,8 @@
   };
 
   const submitPassenger = async () => {
+    if (hasDirectPassengerForm()) return true;
+
     const button = getAddButton();
     if (!button) {
       console.log("Add/Save button not found");
