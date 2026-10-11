@@ -1,17 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "TTD Smart Autofill",
-  "version": "2.0.0",
-  "description": "Local-only TTD pilgrim profile and multi-pilgrim autofill helper.",
+  "name": "IRCTC Passenger Autofill",
+  "version": "1.0.0",
+  "description": "Local-only IRCTC passenger profile autofill helper.",
   "permissions": ["storage", "activeTab"],
-  "host_permissions": ["https://ttdevasthanams.ap.gov.in/*"],
+  "host_permissions": ["https://www.irctc.co.in/*", "https://irctc.co.in/*"],
   "action": {
-    "default_title": "TTD Smart Autofill",
+    "default_title": "IRCTC Passenger Autofill",
     "default_popup": "popup.html"
   },
   "content_scripts": [
     {
-      "matches": ["https://ttdevasthanams.ap.gov.in/*"],
+      "matches": ["https://www.irctc.co.in/*", "https://irctc.co.in/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
