@@ -2,27 +2,49 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>IRCTC Passenger Autofill</title>
+  <title>TTD Smart Autofill</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <h2>IRCTC Passenger Autofill</h2>
-  <div class="sub">Local passenger profiles</div>
-  <label for="profileSelect">Passenger profile</label>
+  <h2>TTD Smart Autofill</h2>
+  <div class="sub">Profiles and multiple pilgrims</div>
+
+  <label for="profileSelect">Profile</label>
   <select id="profileSelect"></select>
-  <button id="fillAllBtn" class="primary">Add &amp; Fill All Passengers</button>
-  <button id="existingPassengerBtn">Select Existing Passenger</button>
+
+  <button id="fillBtn" class="primary">Fill Form Only</button>
   <button id="saveBtn">Save Profile</button>
   <button id="newBtn">New Profile</button>
   <div id="status" class="status">Ready</div>
+
   <details open>
-    <summary>Passenger details</summary>
+    <summary>Profile details</summary>
+
     <label for="profileName">Profile name</label>
-    <input id="profileName" placeholder="Family passengers">
-    <div id="passengers"></div>
-    <button id="addPassengerBtn">+ Add Passenger</button>
+    <input id="profileName" placeholder="Family 1">
+
+    <div class="section-title">General Details</div>
+    <label for="generalEmail">Enter email ID <span class="required">*</span></label>
+    <input id="generalEmail" placeholder="Enter email ID">
+
+    <label for="generalCity">Enter City <span class="required">*</span></label>
+    <input id="generalCity" placeholder="Enter City">
+
+    <label for="generalState">State <span class="required">*</span></label>
+    <input id="generalState" placeholder="State">
+
+    <label for="generalCountry">Country <span class="required">*</span></label>
+    <input id="generalCountry" placeholder="Country">
+
+    <label for="generalPincode">Enter pincode <span class="required">*</span></label>
+    <input id="generalPincode" placeholder="Enter pincode">
+
+    <div id="pilgrims"></div>
+    <button id="addPilgrimBtn">+ Add Pilgrim</button>
+    <button id="deleteBtn" class="danger">Delete Profile</button>
   </details>
-  <p class="note">This extension opens and fills one IRCTC passenger dialog at a time. It does not automate CAPTCHA, payment, queue handling, or final booking submission. Review every passenger before continuing.</p>
+
+  <p class="note">Data is stored locally in Edge. Review every field before continuing. This extension does not automate CAPTCHA, payment, queues, or final submission.</p>
   <script src="popup.js"></script>
 </body>
 </html>

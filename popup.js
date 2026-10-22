@@ -1,22 +1,19 @@
-const emptyPassenger = () => ({ name: "", age: "", gender: "Male", country: "India", preference: "" });
-const defaultData = { profiles: [{ id: crypto.randomUUID(), name: "Family passengers", passengers: [emptyPassenger()] }], selected: null };
+const emptyPilgrim = () => ({ name: "", age: "", gender: "Male", idType: "Aadhaar Card", idNumber: "" });
+const emptyGeneralDetails = () => ({ email: "", city: "", state: "", country: "", pincode: "" });
+const defaultData = { profiles: [{ id: crypto.randomUUID(), name: "My Profile", generalDetails: emptyGeneralDetails(), pilgrims: [emptyPilgrim()] }], selected: null };
 let data;
 
 const current = () => data.profiles.find(profile => profile.id === data.selected) || data.profiles[0];
 const status = message => { document.getElementById("status").textContent = message; };
 const escapeHtml = value => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;");
 
-function migrateProfile(profile) {
-  if (!Array.isArray(profile.passengers)) profile.passengers = [profile.passenger || emptyPassenger()];
-  profile.passengers = profile.passengers.map(passenger => ({ ...emptyPassenger(), ...passenger }));
-  delete profile.passenger;
-  return profile;
-}
-
 async function load() {
   data = await chrome.storage.local.get(defaultData);
   if (!data.profiles?.length) data.profiles = defaultData.profiles;
-  data.profiles = data.profiles.map(migrateProfile);
+  data.profiles.forEach(profile => {
+    if (!profile.generalDetails) profile.generalDetails = emptyGeneralDetails();
+    if (!profile.pilgrims?.length) profile.pilgrims = [emptyPilgrim()];
+  });
   if (!data.selected || !data.profiles.some(profile => profile.id === data.selected)) data.selected = data.profiles[0].id;
   renderProfiles();
   renderEditor();
@@ -25,35 +22,50 @@ async function load() {
 function renderProfiles() {
   const select = document.getElementById("profileSelect");
   select.replaceChildren();
-  data.profiles.forEach(profile => select.add(new Option(profile.name, profile.id, profile.id === data.selected, profile.id === data.selected)));
+  data.profiles.forEach(profile => {
+    const option = new Option(profile.name, profile.id, profile.id === data.selected, profile.id === data.selected);
+    select.add(option);
+  });
 }
 
 function renderEditor() {
   const profile = current();
-  document.getElementById("profileName").value = profile.name || "";
-  const root = document.getElementById("passengers");
+  document.getElementById("profileName").value = profile.name;
+  document.getElementById("generalEmail").value = profile.generalDetails?.email || "";
+  document.getElementById("generalCity").value = profile.generalDetails?.city || "";
+  document.getElementById("generalState").value = profile.generalDetails?.state || "";
+  document.getElementById("generalCountry").value = profile.generalDetails?.country || "";
+  document.getElementById("generalPincode").value = profile.generalDetails?.pincode || "";
+
+  const root = document.getElementById("pilgrims");
   root.replaceChildren();
-  profile.passengers.forEach((passenger, index) => {
+  profile.pilgrims.forEach((pilgrim, index) => {
     const box = document.createElement("div");
-    box.className = "passenger";
-    box.innerHTML = `<h4>Passenger ${index + 1}</h4>
-      <label>Full Name as per Govt. ID</label><input data-key="name" data-index="${index}" value="${escapeHtml(passenger.name)}">
-      <label>Age</label><input data-key="age" data-index="${index}" value="${escapeHtml(passenger.age)}" type="number" min="1" max="120" inputmode="numeric">
-      <label>Gender</label><select data-key="gender" data-index="${index}"><option>Male</option><option>Female</option><option>Transgender</option></select>
-      <label>Country</label><input data-key="country" data-index="${index}" value="${escapeHtml(passenger.country || "India")}">
-      <label>Preference</label><select data-key="preference" data-index="${index}"><option value="">Select</option><option>Lower</option><option>Middle</option><option>Upper</option><option>Side Lower</option><option>Side Upper</option></select>
-      <button class="remove" data-remove="${index}">Remove Passenger</button>`;
+    box.className = "pilgrim";
+    box.innerHTML = `<h4>Pilgrim ${index + 1}</h4>
+      <label>Name</label><input data-key="name" data-index="${index}" value="${escapeHtml(pilgrim.name)}">
+      <label>Age</label><input data-key="age" data-index="${index}" value="${escapeHtml(pilgrim.age)}" inputmode="numeric">
+      <label>Gender</label><select data-key="gender" data-index="${index}"><option>Male</option><option>Female</option><option>Other</option></select>
+      <label>Photo ID Proof</label><input data-key="idType" data-index="${index}" value="${escapeHtml(pilgrim.idType)}">
+      <label>Photo ID Number</label><input data-key="idNumber" data-index="${index}" value="${escapeHtml(pilgrim.idNumber)}">
+      <button class="remove" data-remove="${index}">Remove Pilgrim</button>`;
     root.append(box);
-    box.querySelector('[data-key="gender"]').value = passenger.gender || "Male";
-    box.querySelector('[data-key="preference"]').value = passenger.preference || "";
+    box.querySelector('[data-key="gender"]').value = pilgrim.gender || "Male";
   });
 }
 
 function readEditor() {
   const profile = current();
-  profile.name = document.getElementById("profileName").value.trim() || "Family passengers";
-  document.querySelectorAll("#passengers [data-key]").forEach(element => {
-    profile.passengers[Number(element.dataset.index)][element.dataset.key] = element.value;
+  profile.name = document.getElementById("profileName").value.trim() || "My Profile";
+  profile.generalDetails = {
+    email: document.getElementById("generalEmail").value.trim(),
+    city: document.getElementById("generalCity").value.trim(),
+    state: document.getElementById("generalState").value.trim(),
+    country: document.getElementById("generalCountry").value.trim(),
+    pincode: document.getElementById("generalPincode").value.trim()
+  };
+  document.querySelectorAll("#pilgrims [data-key]").forEach(element => {
+    profile.pilgrims[Number(element.dataset.index)][element.dataset.key] = element.value;
   });
 }
 
@@ -63,19 +75,6 @@ async function save() {
   renderProfiles();
 }
 
-async function send(action) {
-  await save();
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) return status("No active tab.");
-  try {
-    const response = await chrome.tabs.sendMessage(tab.id, { action, passengers: current().passengers });
-    status(response?.message || "Completed. Review all passenger details.");
-  } catch (error) {
-    console.error(error);
-    status("Open the IRCTC passenger page and reload it, then try again.");
-  }
-}
-
 document.getElementById("profileSelect").addEventListener("change", async event => {
   readEditor();
   data.selected = event.target.value;
@@ -83,23 +82,39 @@ document.getElementById("profileSelect").addEventListener("change", async event 
   renderEditor();
 });
 document.getElementById("saveBtn").addEventListener("click", async () => { await save(); status("Profile saved locally."); });
-document.getElementById("fillAllBtn").addEventListener("click", () => send("fillPassengers"));
-document.getElementById("existingPassengerBtn").addEventListener("click", () => send("selectExistingPassengers"));
-document.getElementById("addPassengerBtn").addEventListener("click", () => { readEditor(); current().passengers.push(emptyPassenger()); renderEditor(); });
 document.getElementById("newBtn").addEventListener("click", async () => {
   readEditor();
-  const profile = { id: crypto.randomUUID(), name: `Profile ${data.profiles.length + 1}`, passengers: [emptyPassenger()] };
+  const profile = { id: crypto.randomUUID(), name: `Profile ${data.profiles.length + 1}`, generalDetails: emptyGeneralDetails(), pilgrims: [emptyPilgrim()] };
   data.profiles.push(profile); data.selected = profile.id;
   await chrome.storage.local.set({ profiles: data.profiles, selected: data.selected });
   renderProfiles(); renderEditor(); status("New profile created.");
 });
-document.getElementById("passengers").addEventListener("click", event => {
+document.getElementById("addPilgrimBtn").addEventListener("click", () => { readEditor(); current().pilgrims.push(emptyPilgrim()); renderEditor(); });
+document.getElementById("deleteBtn").addEventListener("click", async () => {
+  if (data.profiles.length === 1) return status("Keep at least one profile.");
+  data.profiles = data.profiles.filter(profile => profile.id !== data.selected);
+  data.selected = data.profiles[0].id;
+  await chrome.storage.local.set({ profiles: data.profiles, selected: data.selected });
+  renderProfiles(); renderEditor(); status("Profile deleted.");
+});
+document.getElementById("pilgrims").addEventListener("click", event => {
   const index = event.target.dataset.remove;
   if (index === undefined) return;
-  readEditor();
-  if (current().passengers.length === 1) return status("Keep at least one passenger.");
-  current().passengers.splice(Number(index), 1);
+  readEditor(); current().pilgrims.splice(Number(index), 1);
+  if (!current().pilgrims.length) current().pilgrims.push(emptyPilgrim());
   renderEditor();
+});
+document.getElementById("fillBtn").addEventListener("click", async () => {
+  await save();
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) return status("No active tab.");
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, { action: "fill", profile: current() });
+    status(response?.message || "Fill completed.");
+  } catch (error) {
+    console.error(error);
+    status("Open the TTD booking page and reload it, then try again.");
+  }
 });
 
 load().catch(error => { console.error(error); status("Could not load local profiles."); });

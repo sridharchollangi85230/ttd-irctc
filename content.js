@@ -1,131 +1,404 @@
 (() => {
-  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-  const normalize = value => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+  const normalize = value => String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
   const visible = element => {
-    if (!element || element.disabled) return false;
-    const rect = element.getBoundingClientRect();
-    const style = getComputedStyle(element);
-    return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && style.visibility !== "collapse";
-  };
-
-  const dialog = () => [...document.querySelectorAll(".ui-dialog.add-passenger-dialog, .add-passenger-dialog.ui-dialog")].find(visible);
-  const dropdown = name => dialog()?.querySelector(`p-dropdown[formcontrolname="${name}"]`) || null;
-  const selectedText = field => normalize(field?.querySelector(".ui-dropdown-label:not(.ui-placeholder)")?.textContent || "");
-
-  const setInput = (element, value) => {
-    if (!element || value === undefined || value === null || value === "") return false;
-    const proto = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-    if (setter) setter.call(element, String(value)); else element.value = String(value);
-    ["input", "change", "blur"].forEach(type => element.dispatchEvent(new Event(type, { bubbles: true, composed: true })));
-    return true;
-  };
-
-  // Important: do not dispatch a click and then call element.click(). That
-  // activates PrimeNG twice, opening and immediately closing the dropdown.
-  const clickOnce = element => {
     if (!element) return false;
-    element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-    element.click();
+    if (element.disabled || element.hidden) return false;
+
+    const style = window.getComputedStyle(element);
+    if (style.visibility === "hidden" || style.display === "none") return false;
+
+    try {
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+    } catch {
+      return false;
+    }
+
     return true;
   };
 
-  const visiblePanels = () => [...document.querySelectorAll(
-    ".ui-dropdown-panel, .ap-dropdown-panel, .ui-dropdown-items-wrapper, [role='listbox']"
-  )].filter(visible);
+  const fields = root => {
+    const selector = [
+      "input:not([type='hidden'])",
+      "textarea",
+      "select",
+      "[role='combobox']",
+      "[role='textbox']",
+      "[contenteditable='true']",
+      "[aria-haspopup='listbox']",
+      "[aria-expanded]",
+      "mat-select",
+      ".mat-select",
+      ".mat-mdc-select",
+      ".custom-select",
+      ".select-box"
+    ].join(", ");
 
-  const panelOptions = () => visiblePanels().flatMap(panel => [
-    ...panel.querySelectorAll("li.ui-dropdown-item, li[role='option'], .ui-dropdown-item, [role='option']")
-  ]).filter(visible).filter(item => normalize(item.textContent));
+    return [...(root || document).querySelectorAll(selector)]
+      .filter(visible)
+      .filter(el => !el.closest("[aria-hidden='true'], [hidden], .hidden, .ng-hide"));
+  };
 
-  const chooseDropdown = async (name, value) => {
-    const field = dropdown(name);
-    if (!field || !value) return false;
-    const wanted = normalize(value);
-    if (selectedText(field) === wanted) return true;
+  const textFor = element => {
+    if (!element) return "";
+    const values = [];
 
-    const trigger = field.querySelector(".ui-dropdown-trigger") || field.querySelector(".ui-dropdown-label-container");
-    if (!clickOnce(trigger)) return false;
+    if (element.labels) {
+      [...element.labels].forEach(label => {
+        const text = label.innerText || label.textContent || "";
+        if (text) values.push(text);
+      });
+    }
 
-    const option = await (async () => {
-      for (let attempt = 0; attempt < 60; attempt++) {
-        const match = panelOptions().find(item => normalize(item.textContent) === wanted);
-        if (match) return match;
-        await wait(50);
+    const attrs = [
+      "aria-label", "aria-labelledby", "placeholder", "name", "id",
+      "formcontrolname", "data-testid", "data-label", "title"
+    ];
+    attrs.forEach(attr => {
+      const value = element.getAttribute(attr);
+      if (value) values.push(value);
+    });
+
+    const nearby = element.closest("label, div, td, li, tr, section, article, form");
+    if (nearby && nearby.innerText) values.push(nearby.innerText.slice(0, 400));
+
+    const parent = element.parentElement;
+    if (parent && parent.innerText) values.push(parent.innerText.slice(0, 400));
+
+    const prev = element.previousElementSibling;
+    if (prev && prev.innerText) values.push(prev.innerText.slice(0, 200));
+
+    const next = element.nextElementSibling;
+    if (next && next.innerText) values.push(next.innerText.slice(0, 200));
+
+    return normalize(values.join(" "));
+  };
+
+  const nativeSetter = (element, value) => {
+    const stringValue = String(value);
+
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      const descriptor = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(element), "value"
+      );
+      if (descriptor && descriptor.set) {
+        descriptor.set.call(element, stringValue);
+        return;
       }
-      return null;
-    })();
+    }
 
+    if (element instanceof HTMLSelectElement) {
+      element.value = stringValue;
+      return;
+    }
+
+    element.value = stringValue;
+  };
+
+  const setValue = (element, value) => {
+    if (!element || value === undefined || value === null || value === "") return false;
+    const normalized = String(value).trim();
+    if (!normalized) return false;
+
+    nativeSetter(element, normalized);
+
+    ["input", "change", "blur"].forEach(type => {
+      try {
+        element.dispatchEvent(new Event(type, { bubbles: true, composed: true }));
+      } catch {}
+    });
+
+    return true;
+  };
+
+  const optionMatches = (element, value) => {
+    const wanted = normalize(value);
+    if (!element) return false;
+
+    const text = normalize(element.textContent || element.innerText || "");
+    const optionValue = normalize(element.getAttribute("value") || "");
+    const title = normalize(element.getAttribute("title") || "");
+
+    return (
+      text === wanted ||
+      optionValue === wanted ||
+      title === wanted ||
+      text.includes(wanted) ||
+      optionValue.includes(wanted) ||
+      title.includes(wanted)
+    );
+  };
+
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+  const setNativeSelect = (element, value) => {
+    const option = [...(element.options || [])].find(item => optionMatches(item, value));
     if (!option) return false;
-    clickOnce(option);
-    for (let attempt = 0; attempt < 30; attempt++) {
-      await wait(50);
-      if (selectedText(field) === wanted) return true;
+
+    element.value = option.value;
+    ["input", "change", "blur"].forEach(type => {
+      try {
+        element.dispatchEvent(new Event(type, { bubbles: true, composed: true }));
+      } catch {}
+    });
+
+    return true;
+  };
+
+  const overlayCandidates = () => {
+    const roots = [...document.querySelectorAll(
+      "[role='listbox'], [role='menu'], mat-option, .mat-option, .mat-mdc-option, " +
+      ".cdk-overlay-pane, .cdk-overlay-container, .dropdown-menu, [class*='dropdown'], " +
+      ".custom-dropdown, .select-menu"
+    )].filter(visible);
+
+    const candidates = roots.flatMap(root => [
+      ...root.querySelectorAll(
+        "[role='option'], [role='menuitem'], mat-option, li, button, option, " +
+        ".mat-option, .mat-mdc-option, .mdc-list-item, div, span"
+      )
+    ]);
+
+    return [...new Set(candidates)]
+      .filter(visible)
+      .filter(el => {
+        const children = [...(el.children || [])];
+        const text = normalize(el.textContent || "");
+        return !children.some(child => normalize(child.textContent || "") === text);
+      });
+  };
+
+  const setCustomSelect = async (element, value) => {
+    if (!element || value === undefined || value === null || value === "") return false;
+    if (element instanceof HTMLSelectElement || element.tagName?.toLowerCase() === "select") {
+      return setNativeSelect(element, value);
     }
-    return false;
-  };
 
-  const fillPassenger = async passenger => {
-    const root = dialog();
-    if (!root) return { nameOk: false, ageOk: false, genderOk: false, countryOk: false, preferenceOk: false };
-    const nameOk = setInput(root.querySelector("input[formcontrolname='passengerName'], p-autocomplete input[role='searchbox']"), passenger.name);
-    const ageOk = setInput(root.querySelector("input[formcontrolname='passengerAge']"), passenger.age);
-    const genderOk = await chooseDropdown("passengerGender", passenger.gender);
-    const countryOk = await chooseDropdown("passengerNationality", passenger.country || "India");
-    const preferenceOk = await chooseDropdown("passengerBerthChoice", passenger.preference);
-    return { nameOk, ageOk, genderOk, countryOk, preferenceOk };
-  };
+    try {
+      element.focus?.();
+      element.click();
+    } catch {}
 
-  const newPassengerButton = () => [...document.querySelectorAll("button.btn-new-passenger")].find(visible);
-  const addButton = () => dialog()?.querySelector("button.ap-add-btn");
-
-  const openPassenger = async () => {
-    const button = newPassengerButton();
-    if (!button) return false;
-    clickOnce(button);
-    for (let attempt = 0; attempt < 40; attempt++) {
-      if (dialog()) return true;
-      await wait(50);
+    let option = null;
+    for (let attempt = 0; attempt < 40 && !option; attempt++) {
+      option = overlayCandidates().find(item => optionMatches(item, value));
+      if (!option) await wait(75);
     }
-    return false;
+
+    if (!option) {
+      try {
+        element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      } catch {}
+      return false;
+    }
+
+    try {
+      option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, composed: true }));
+      option.click();
+      option.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, composed: true }));
+    } catch {
+      try {
+        element.click();
+      } catch {}
+    }
+
+    await wait(150);
+    return true;
   };
 
-  const addPassenger = async () => {
-    const button = addButton();
-    if (!button || !visible(button)) return false;
-    clickOnce(button);
-    await wait(500);
-    return !dialog();
+  const scoreLabel = (label, keywords) => {
+    const text = normalize(label || "");
+    return keywords.reduce((total, keyword) => {
+      const k = normalize(keyword);
+      return total + (text.includes(k) ? 1 : 0);
+    }, 0);
+  };
+
+  const best = (available, keywords, used) => {
+    let selected = null;
+    let score = -1;
+
+    for (const element of available) {
+      if (used.has(element)) continue;
+
+      const label = textFor(element);
+      const current = scoreLabel(label, keywords);
+
+      if (current > score) {
+        selected = element;
+        score = current;
+      }
+    }
+
+    if (selected) used.add(selected);
+    return selected;
+  };
+
+  const directFieldMatch = (available, keywords) => {
+    const matches = [];
+    for (const element of available) {
+      const label = textFor(element);
+      const score = scoreLabel(label, keywords);
+      if (score > 0) matches.push({ element, score });
+    }
+    matches.sort((a, b) => b.score - a.score);
+    return matches[0]?.element || null;
+  };
+
+  const fillGeneralDetails = async (root, profile) => {
+    if (!profile?.generalDetails) return 0;
+
+    const available = fields(root);
+    const used = new Set();
+    let count = 0;
+
+    const email = directFieldMatch(available, ["email id", "email", "email address", "e mail"]) ||
+      best(available, ["email id", "email", "email address", "e mail"], used);
+
+    const city = directFieldMatch(available, ["city", "town", "place"]) ||
+      best(available, ["city", "town", "place"], used);
+
+    const state = directFieldMatch(available, ["state", "province"]) ||
+      best(available, ["state", "province"], used);
+
+    const country = directFieldMatch(available, ["country", "nation"]) ||
+      best(available, ["country", "nation"], used);
+
+    const pincode = directFieldMatch(available, ["pincode", "pin code", "postal code", "zip code"]) ||
+      best(available, ["pincode", "pin code", "postal code", "zip code"], used);
+
+    if (email && setValue(email, profile.generalDetails.email)) count++;
+    if (city && setValue(city, profile.generalDetails.city)) count++;
+    if (state && setValue(state, profile.generalDetails.state)) count++;
+    if (country && setValue(country, profile.generalDetails.country)) count++;
+    if (pincode && setValue(pincode, profile.generalDetails.pincode)) count++;
+
+    return count;
+  };
+
+  const fillPilgrim = async (root, pilgrim) => {
+    const available = fields(root);
+    const used = new Set();
+    let count = 0;
+
+    const name = directFieldMatch(available, ["pilgrim name", "devotee name", "full name", "name"]) ||
+      best(available, ["pilgrim name", "devotee name", "full name", "name"], used);
+
+    const age = directFieldMatch(available, ["age", "years"]) ||
+      best(available, ["age", "years"], used);
+
+    const gender = directFieldMatch(available, ["gender", "sex"]) ||
+      best(available, ["gender", "sex"], used);
+
+    const proof = directFieldMatch(available, ["photo id proof", "id proof", "proof type", "document type", "identity proof"]) ||
+      best(available, ["photo id proof", "id proof", "proof type", "document type", "identity proof"], used);
+
+    const number = directFieldMatch(available, ["photo id number", "id number", "proof id number", "document number", "identity number"]) ||
+      best(available, ["photo id number", "id number", "proof id number", "document number", "identity number"], used);
+
+    if (name && setValue(name, pilgrim.name)) count++;
+    if (age && setValue(age, pilgrim.age)) count++;
+    if (gender && (await setCustomSelect(gender, pilgrim.gender))) count++;
+    if (proof && (await setCustomSelect(proof, pilgrim.idType))) count++;
+    if (number && setValue(number, pilgrim.idNumber)) count++;
+
+    return count;
+  };
+
+  const findGroups = expected => {
+    const all = fields(document);
+
+    const pilgrimKeywords = [
+      "name", "age", "years", "gender", "sex", "photo id",
+      "id proof", "document", "identity"
+    ];
+
+    const pilgrimFields = all.filter(field => {
+      const label = textFor(field);
+      return pilgrimKeywords.some(keyword => label.includes(normalize(keyword)));
+    });
+
+    const rows = [];
+    const used = new Set();
+
+    for (const field of [...pilgrimFields].sort((a, b) => {
+      const aTop = a.getBoundingClientRect().top;
+      const bTop = b.getBoundingClientRect().top;
+      return aTop - bTop;
+    })) {
+      if (used.has(field)) continue;
+      const top = field.getBoundingClientRect().top;
+      let row = rows.find(candidate => Math.abs(candidate.top - top) <= 18);
+      if (!row) {
+        row = { top, elements: [] };
+        rows.push(row);
+      }
+      row.elements.push(field);
+      used.add(field);
+    }
+
+    const rowGroups = rows
+      .sort((a, b) => a.top - b.top)
+      .map(row => row.elements)
+      .filter(row => row.length >= 3);
+
+    if (rowGroups.length >= expected) {
+      return rowGroups.slice(0, expected).map(elements => ({ querySelectorAll: () => elements }));
+    }
+
+    const candidates = [...document.querySelectorAll(
+      "fieldset, section, article, li, tr, .row, [class*='pilgrim'], [class*='passenger'], [class*='devotee']"
+    )].filter(visible).filter(group => fields(group).length >= 3);
+
+    const unique = [];
+    for (const group of candidates) {
+      if (!unique.some(existing => existing.contains(group) || group.contains(existing))) {
+        unique.push(group);
+      }
+      if (unique.length >= expected) break;
+    }
+
+    if (unique.length >= expected) {
+      return unique.slice(0, expected);
+    }
+
+    const chunkSize = Math.max(1, Math.floor(all.length / expected));
+    return Array.from({ length: expected }, (_, index) => {
+      const selected = all.slice(index * chunkSize, index === expected - 1 ? all.length : (index + 1) * chunkSize);
+      return { querySelectorAll: () => selected };
+    });
   };
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!["fillPassengers", "selectExistingPassengers"].includes(message.action)) return;
+    if (message.action !== "fill") return;
+
     (async () => {
       try {
-        if (message.action === "selectExistingPassengers") {
-          sendResponse({ message: "Select existing passengers manually from the IRCTC list." });
-          return;
+        const profile = message.profile || { generalDetails: {}, pilgrims: [] };
+        const pilgrims = Array.isArray(profile.pilgrims) ? profile.pilgrims : [];
+        const groups = findGroups(pilgrims.length || 1);
+        let filled = 0;
+
+        if (profile.generalDetails) {
+          filled += await fillGeneralDetails(document, profile);
         }
-        const passengers = Array.isArray(message.passengers) ? message.passengers : [];
-        if (!passengers.length) { sendResponse({ message: "Add at least one passenger to the profile." }); return; }
-        let completed = 0;
-        for (const passenger of passengers) {
-          if (!await openPassenger()) break;
-          const result = await fillPassenger(passenger);
-          if (!result.nameOk || !result.ageOk || !result.genderOk || !result.countryOk || !result.preferenceOk) {
-            const missing = [!result.nameOk && "Name", !result.ageOk && "Age", !result.genderOk && "Gender", !result.countryOk && "Country", !result.preferenceOk && "Preference"].filter(Boolean).join(", ");
-            sendResponse({ message: `Passenger ${completed + 1} could not be completed. Check: ${missing}.` });
-            return;
-          }
-          if (!await addPassenger()) break;
-          completed++;
+
+        for (const [index, pilgrim] of pilgrims.entries()) {
+          filled += await fillPilgrim(groups[index] || document, pilgrim);
         }
-        sendResponse({ message: completed === passengers.length ? `Added and filled ${completed} passenger(s). Review all details before continuing.` : `Filled ${completed} of ${passengers.length} passenger(s).` });
+
+        sendResponse({
+          message: filled
+            ? `Filled ${filled} field(s) for ${pilgrims.length} pilgrim(s). Review all details before continuing.`
+            : "No matching fields found. Check the page and form labels."
+        });
       } catch (error) {
-        console.error("IRCTC Passenger Autofill:", error);
-        sendResponse({ message: "Could not fill the passenger form. Please review manually." });
+        console.error("TTD Smart Autofill:", error);
+        sendResponse({ message: "Could not fill this page. Please review manually." });
       }
     })();
+
     return true;
   });
 })();
